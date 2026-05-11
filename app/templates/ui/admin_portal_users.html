@@ -1,0 +1,1181 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · Users — VibeForge+{% endblock %}
+
+{% block extra_css %}
+  /* VF-329: Users workspace — master-detail (3-pane) layout.
+     Replaces the right-slide-out drawer. Sidebar (240) | list (320) | detail (rest).
+     No overlay; list and detail are simultaneously interactive. */
+
+  /* Override admin_base ap-workspace constraints. The shell takes over. */
+  .ap-workspace { padding: 0; max-width: none; overflow: hidden; height: calc(100vh - 56px); }
+
+  .apu-shell {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* ── List pane ─────────────────────────────────────── */
+  .apu-list-pane {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .apu-list-head { padding: 18px 18px 12px; border-bottom: 1px solid var(--border); }
+  .apu-list-title-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .apu-list-title { font-size: 16px; font-weight: 700; }
+  .apu-list-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .apu-search-wrap { position: relative; margin-bottom: 10px; }
+  .apu-search-wrap::before {
+    content: '\2315'; position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+    color: var(--text-muted); font-size: 14px; pointer-events: none;
+  }
+  .apu-search {
+    width: 100%; padding: 7px 10px 7px 28px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text); font-size: 12px; outline: none;
+  }
+  .apu-search:focus { border-color: var(--violet); }
+  .apu-list-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .apu-chip {
+    padding: 4px 10px; background: var(--bg-panel-2);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-muted); font-family: var(--mono);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+    cursor: pointer; user-select: none;
+  }
+  .apu-chip.active { background: var(--violet-glow); color: var(--violet-2); border-color: var(--violet); }
+  .apu-chip:hover:not(.active) { color: var(--text); border-color: var(--border-strong); }
+  .apu-chip-count { color: var(--text-dim); margin-left: 4px; }
+  .apu-add-btn {
+    margin-left: auto; padding: 4px 10px;
+    background: var(--violet); border: 1px solid var(--violet);
+    border-radius: 4px; color: #fff;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    cursor: pointer;
+  }
+  .apu-add-btn:hover { background: var(--violet-2); border-color: var(--violet-2); }
+
+  .apu-list-body { flex: 1; overflow-y: auto; padding: 4px; }
+  .apu-list-empty {
+    padding: 24px 16px; text-align: center;
+    color: var(--text-muted); font-style: italic; font-size: 12px;
+  }
+  .apu-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 4px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+  }
+  .apu-row:hover { background: var(--bg-panel-2); }
+  .apu-row.selected { background: var(--violet-glow); border-left-color: var(--violet); }
+  .apu-row.deleted { opacity: 0.55; }
+  .apu-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--violet-glow); color: var(--violet-2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .apu-row-main { flex: 1; min-width: 0; }
+  .apu-row-name {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .apu-row-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+    margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .apu-row-pills { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+  .apu-role-pill {
+    font-family: var(--mono); font-size: 9px; padding: 1px 6px; border-radius: 8px;
+    text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em;
+  }
+  .apu-role-pill.sa { background: var(--red); color: #fff; }
+  .apu-role-pill.su { background: rgba(141,143,155,0.25); color: var(--text-muted); }
+  .apu-role-pill.user { background: var(--violet-glow); color: var(--violet-2); }
+  .apu-role-pill.viewer {
+    background: rgba(148,163,184,0.15); color: #94a3b8;
+    border: 1px solid rgba(148,163,184,0.3);
+  }
+  .apu-status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .apu-status-dot.active { background: var(--green); box-shadow: 0 0 5px var(--green); }
+  .apu-status-dot.suspended { background: var(--amber); }
+  .apu-status-dot.deleted { background: var(--text-dim); }
+
+  /* ── Detail pane ───────────────────────────────────── */
+  .apu-detail-pane { display: flex; flex-direction: column; overflow: hidden; }
+  .apu-detail-empty {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--text-muted); padding: 40px;
+  }
+  .apu-detail-empty-icon { font-size: 36px; opacity: 0.35; margin-bottom: 12px; }
+  .apu-detail-empty-msg { font-size: 13px; }
+
+  .apu-detail-head {
+    padding: 22px 32px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 18px; align-items: center;
+  }
+  .apu-detail-avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--violet-glow); color: var(--violet-2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 18px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .apu-detail-name {
+    font-size: 22px; font-weight: 700; line-height: 1.1;
+  }
+  .apu-detail-meta {
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .apu-status-pill {
+    font-family: var(--mono); font-size: 9px; padding: 1px 7px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .apu-status-pill.active { background: rgba(79,209,139,0.14); color: var(--green); }
+  .apu-status-pill.suspended { background: rgba(232,184,74,0.14); color: var(--amber); }
+  .apu-status-pill.deleted { background: rgba(201,87,87,0.14); color: var(--red-2); }
+  .apu-detail-id {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    margin-left: auto; align-self: flex-start; padding-top: 4px;
+  }
+
+  .apu-detail-body { flex: 1; overflow-y: auto; padding: 24px 32px; }
+
+  .apu-grid-2 {
+    display: grid; gap: 16px; margin-bottom: 16px;
+    grid-template-columns: 1fr 1fr;
+  }
+  @media (max-width: 1280px) {
+    .apu-grid-2 { grid-template-columns: 1fr; }
+  }
+
+  .apu-panel {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px 20px; margin-bottom: 16px;
+  }
+  .apu-panel-title {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    color: var(--violet-2); text-transform: uppercase; letter-spacing: 0.08em;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .apu-panel-title.danger { color: var(--red-2); }
+  .apu-panel-count {
+    font-family: var(--mono); font-size: 9px; color: var(--text-muted); font-weight: 400;
+  }
+
+  .apu-kv-row {
+    display: grid; grid-template-columns: 140px 1fr;
+    padding: 7px 0; font-family: var(--mono); font-size: 12px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .apu-kv-row:last-child { border-bottom: none; }
+  .apu-kv-k {
+    color: var(--text-muted); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .apu-kv-v { color: var(--text); overflow-wrap: anywhere; }
+
+  /* Bound agents — compact rows */
+  .apu-agent-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 6px; border-bottom: 1px solid rgba(148,163,184,0.06);
+    font-size: 12px;
+  }
+  .apu-agent-row:last-child { border-bottom: none; }
+  .apu-agent-row.revoked { opacity: 0.55; }
+  .apu-agent-icon {
+    width: 28px; height: 28px; border-radius: 5px;
+    background: rgba(139,125,247,0.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0;
+  }
+  .apu-agent-name { font-family: var(--mono); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .apu-agent-meta { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+  /* Memberships */
+  .apu-mem-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 6px; border-bottom: 1px solid rgba(148,163,184,0.06);
+    font-size: 12px;
+  }
+  .apu-mem-row:last-child { border-bottom: none; }
+  .apu-mem-icon {
+    width: 24px; height: 24px; border-radius: 4px;
+    background: rgba(124,58,237,0.15); color: var(--violet-2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .apu-mem-name { font-family: var(--mono); flex: 1; }
+  .apu-mem-role {
+    font-family: var(--mono); font-size: 10px;
+    padding: 1px 6px; border-radius: 8px;
+    background: var(--bg-panel-2); color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+
+  /* VF-343 PK feedback 2026-04-28: SA-account "SID-500-equivalent" treatment.
+     Built-in break-glass identity gets a banner + greyed-out informational
+     stubs for actions the server refuses (server-side guards already exist
+     in admin.py for delete/suspend/role-change on super_admin). Force-pw and
+     Reset-password stay enabled - those are still useful for the operator. */
+  .apu-protected-banner {
+    background: color-mix(in srgb, var(--amber) 15%, transparent);
+    border: 1px solid var(--amber);
+    border-left: 4px solid var(--amber);
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .apu-protected-banner b { color: var(--amber); font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .apu-protected-banner .apu-protected-tag {
+    display: inline-block;
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    padding: 2px 8px; border-radius: 8px; margin-right: 8px;
+    background: var(--amber); color: #1a1305;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .apu-act.protected {
+    opacity: 0.6;
+    background: var(--bg-panel);
+    border-style: dashed;
+  }
+  .apu-act.protected .apu-act-name { color: var(--text-muted); }
+  .apu-act.protected .apu-act-hint { color: var(--amber); font-style: italic; }
+  .apu-act-protected-msg {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--amber);
+    padding: 6px 10px; margin-top: 6px;
+    background: color-mix(in srgb, var(--amber) 8%, transparent);
+    border-radius: 3px;
+  }
+
+  /* Action cards (in 2-col grid, with span-2 for soft-delete) */
+  .apu-actions-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .apu-act {
+    background: var(--bg-panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px 16px;
+  }
+  .apu-act.danger { border-color: rgba(201,87,87,0.35); }
+  .apu-act.span2 { grid-column: 1 / -1; }
+  .apu-act-name {
+    font-weight: 700; font-size: 13px; margin-bottom: 4px;
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  .apu-act-hint {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+    font-weight: 400;
+  }
+  .apu-act-desc {
+    font-size: 11px; color: var(--text-muted);
+    margin-bottom: 10px; line-height: 1.5;
+  }
+  .apu-act-form { display: flex; flex-direction: column; gap: 8px; }
+  .apu-inp {
+    padding: 7px 10px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-family: var(--mono); font-size: 12px;
+    outline: none;
+  }
+  .apu-inp:focus { border-color: var(--violet); }
+  .apu-act-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .apu-status-line {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+  }
+  .apu-status-line.err { color: var(--red-2); }
+  .apu-status-line.ok { color: var(--green); }
+  .apu-guard {
+    background: rgba(232,184,74,0.08); border-left: 3px solid var(--amber);
+    padding: 8px 12px; font-size: 11px; color: var(--text); margin-bottom: 10px;
+    line-height: 1.5; border-radius: 4px;
+  }
+  .apu-guard.red {
+    background: rgba(201,87,87,0.08); border-left-color: var(--red);
+  }
+
+  /* VF-329 F5: New User form — 2-col grid borrowed from old admin_user_new.html
+     visual language. Mono labels, helper text below each field. */
+  .apu-form-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px;
+  }
+  @media (max-width: 1100px) { .apu-form-grid { grid-template-columns: 1fr; } }
+  .apu-form-field { display: flex; flex-direction: column; gap: 4px; }
+  .apu-form-label {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .apu-form-helper {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* Toast (lightweight, top-right) */
+  .apu-toast-stack {
+    position: fixed; top: 70px; right: 20px; z-index: 11000;
+    display: flex; flex-direction: column; gap: 8px;
+    max-width: 420px;
+  }
+  .apu-toast {
+    background: var(--bg-panel); border: 1px solid var(--border-strong);
+    border-radius: 6px; padding: 12px 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    border-left: 3px solid var(--violet);
+    animation: apu-toast-in 0.18s ease-out;
+  }
+  .apu-toast.amber { border-left-color: var(--amber); }
+  .apu-toast.red { border-left-color: var(--red); }
+  .apu-toast.green { border-left-color: var(--green); }
+  .apu-toast-title {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--violet-2); text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .apu-toast.amber .apu-toast-title { color: var(--amber); }
+  .apu-toast.red .apu-toast-title { color: var(--red-2); }
+  .apu-toast.green .apu-toast-title { color: var(--green); }
+  .apu-toast-body {
+    font-size: 12px; color: var(--text); line-height: 1.5;
+  }
+  .apu-toast-body code {
+    background: var(--bg); padding: 1px 6px; border-radius: 3px;
+    border: 1px solid var(--border); font-family: var(--mono);
+  }
+  @keyframes apu-toast-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+{% endblock %}
+
+{% block content %}
+<div class="apu-shell">
+
+  <!-- ─── List pane ─── -->
+  <div class="apu-list-pane">
+    <div class="apu-list-head">
+      <div class="apu-list-title-row">
+        <div class="apu-list-title">Users</div>
+        <div class="apu-list-count" id="apuCount">—</div>
+      </div>
+      <div class="apu-search-wrap">
+        <input class="apu-search" id="apuSearch" placeholder="Search users..." oninput="apuSearch(this.value)">
+      </div>
+      <div class="apu-list-actions">
+        <span class="apu-chip active" data-filter="active"  onclick="apuSetFilter('active')">Active <span class="apu-chip-count" id="apuChipActive">—</span></span>
+        <span class="apu-chip"        data-filter="suspended" onclick="apuSetFilter('suspended')">Susp <span class="apu-chip-count" id="apuChipSuspended">—</span></span>
+        <span class="apu-chip"        data-filter="deleted"  onclick="apuSetFilter('deleted')">Del <span class="apu-chip-count" id="apuChipDeleted">—</span></span>
+        <span class="apu-chip"        data-filter="all"     onclick="apuSetFilter('all')">All <span class="apu-chip-count" id="apuChipAll">—</span></span>
+        <button class="apu-add-btn" onclick="apuNewUser()">+ New</button>
+      </div>
+    </div>
+    <div class="apu-list-body" id="apuList">
+      <div class="apu-list-empty">Loading users…</div>
+    </div>
+  </div>
+
+  <!-- ─── Detail pane ─── -->
+  <div class="apu-detail-pane" id="apuDetail">
+    <div class="apu-detail-empty">
+      <div class="apu-detail-empty-icon">&#128100;</div>
+      <div class="apu-detail-empty-msg">Select a user from the list.</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="apu-toast-stack" id="apuToastStack"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+/* VF-329 — Users workspace, master-detail edition.
+   Replaces the old drawer pattern. Consumes window.NavGuard + window.RevealPanel
+   from admin_base.html. Bug 1 (FLAG FAILED stringified-object) fixed inline by
+   the new _formatError helper. Bug 2 (Reset password (see response)) fixed by
+   the RevealPanel + correct response key (temp_password). */
+
+const APU_USERS_INIT = {{ users_payload | tojson }};
+const APU_OPEN_ID = {{ open_id | tojson }};
+const APU_ACTIVE_SU_COUNT = {{ active_su_count | int }};
+
+const apu = {
+  users: APU_USERS_INIT,
+  search: '',
+  filter: 'active',                 // VF-343 PK feedback 2026-04-28: default to Active
+  selectedId: null,
+  detailAudit: null,                // populated by /api/users/{id}/audit on selection
+  detailAuditLimit: 50,             // default audit window; expand button bumps to 200
+};
+
+/* ── Helpers ──────────────────────────────────────────── */
+
+function apuEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function apuInitials(n) {
+  return (n || '?').split(/\s+/).map(w => (w[0] || '')).join('').slice(0,2).toUpperCase();
+}
+
+function apuFmt(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString([], { dateStyle:'short', timeStyle:'short' });
+  } catch(e) { return iso; }
+}
+
+function apuRolePill(role) {
+  if (role === 'super_admin') return '<span class="apu-role-pill sa">SA</span>';
+  if (role === 'super_user')  return '<span class="apu-role-pill su">SU</span>';
+  if (role === 'viewer')      return '<span class="apu-role-pill viewer">viewer</span>';
+  return '<span class="apu-role-pill user">' + apuEsc(role) + '</span>';
+}
+
+function apuIsOnlySU(u) {
+  return u.role === 'super_user' && u.status === 'active' && APU_ACTIVE_SU_COUNT === 1;
+}
+
+/* VF-329 Bug 1 fix: handle FastAPI/Pydantic detail formats robustly.
+   - string         → use as-is
+   - array of objs  → join msg fields with ' · '
+   - object         → use msg or stringify
+   - missing        → fallback */
+function _formatError(d, fallback) {
+  if (!d) return fallback || 'Request failed.';
+  if (typeof d === 'string') return d;
+  if (typeof d.detail === 'string') return d.detail;
+  if (Array.isArray(d.detail)) {
+    return d.detail.map(e => {
+      if (!e) return '';
+      if (typeof e === 'string') return e;
+      if (typeof e === 'object') {
+        const loc = Array.isArray(e.loc) ? e.loc.slice(-1)[0] : null;
+        return (loc ? loc + ': ' : '') + (e.msg || JSON.stringify(e));
+      }
+      return String(e);
+    }).filter(Boolean).join(' · ');
+  }
+  if (d.detail && typeof d.detail === 'object') {
+    return d.detail.msg || JSON.stringify(d.detail);
+  }
+  if (d.message) return d.message;
+  return fallback || 'Request failed.';
+}
+
+async function _apuPost(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : null,
+    credentials: 'same-origin',
+  });
+  const text = await r.text();
+  let d = {};
+  try { d = JSON.parse(text); } catch { d = { raw: text }; }
+  return { ok: r.ok, status: r.status, data: d };
+}
+
+/* ── Toast ──────────────────────────────────────────── */
+function apuToast(title, body, tone='') {
+  const stack = document.getElementById('apuToastStack');
+  if (!stack) return;
+  const node = document.createElement('div');
+  node.className = 'apu-toast' + (tone ? ' ' + tone : '');
+  node.innerHTML = '<div class="apu-toast-title">' + apuEsc(title) + '</div>' +
+                   '<div class="apu-toast-body">' + body + '</div>';
+  stack.appendChild(node);
+  setTimeout(() => {
+    node.style.transition = 'opacity 0.4s';
+    node.style.opacity = '0';
+    setTimeout(() => node.remove(), 420);
+  }, 6000);
+}
+
+/* ── Filter / list rendering ────────────────────────── */
+
+function _filtered() {
+  const q = apu.search.trim().toLowerCase();
+  return apu.users.filter(u => {
+    if (apu.filter === 'active'    && u.status !== 'active') return false;
+    if (apu.filter === 'suspended' && u.status !== 'suspended') return false;
+    if (apu.filter === 'deleted'   && u.status !== 'deleted') return false;
+    if (q) {
+      const hay = (u.username + ' ' + (u.display_name || '') + ' ' + (u.email || '')).toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+
+function apuRenderCounts() {
+  const all = apu.users.length;
+  const active = apu.users.filter(u => u.status === 'active').length;
+  const susp = apu.users.filter(u => u.status === 'suspended').length;
+  const del = apu.users.filter(u => u.status === 'deleted').length;
+  document.getElementById('apuChipAll').textContent = all;
+  document.getElementById('apuChipActive').textContent = active;
+  document.getElementById('apuChipSuspended').textContent = susp;
+  document.getElementById('apuChipDeleted').textContent = del;
+  document.getElementById('apuCount').textContent =
+    active + ' active' + (susp ? ' · ' + susp + ' susp' : '') + (del ? ' · ' + del + ' del' : '');
+}
+
+function apuRenderList() {
+  const el = document.getElementById('apuList');
+  const list = _filtered();
+  if (!list.length) {
+    el.innerHTML = '<div class="apu-list-empty">No users match.</div>';
+    return;
+  }
+  el.innerHTML = list.map(u => {
+    const sel = (apu.selectedId === u.id) ? ' selected' : '';
+    const del = (u.status === 'deleted') ? ' deleted' : '';
+    return '<div class="apu-row' + sel + del + '" data-id="' + apuEsc(u.id) + '" onclick="apuSelect(\'' + apuEsc(u.id) + '\')">' +
+      '<div class="apu-avatar">' + apuEsc(apuInitials(u.display_name || u.username)) + '</div>' +
+      '<div class="apu-row-main">' +
+        '<div class="apu-row-name">' + apuEsc(u.display_name || u.username) + '</div>' +
+        '<div class="apu-row-meta">' + apuEsc(u.username) + (u.last_login_at ? ' · ' + apuFmt(u.last_login_at) : ' · never') + '</div>' +
+      '</div>' +
+      '<div class="apu-row-pills">' + apuRolePill(u.role) + '<div class="apu-status-dot ' + apuEsc(u.status) + '"></div></div>' +
+    '</div>';
+  }).join('');
+}
+
+function apuSetFilter(f) {
+  document.querySelectorAll('.apu-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === f));
+  apu.filter = f;
+  apuRenderList();
+}
+
+function apuSearch(q) {
+  apu.search = q;
+  apuRenderList();
+}
+
+/* ── Selection (NavGuard-wrapped) ──────────────────── */
+
+function apuSelect(id) {
+  if (apu.selectedId === id) return;
+  // NavGuard intercepts if dirty/reveal state in the current detail pane.
+  const target = function() {
+    apu.selectedId = id;
+    apu.detailAudit = null;          // VF-343: clear before fetch
+    apu.detailAuditLimit = 50;       // reset to default on new selection
+    apuRenderList();
+    apuRenderDetail();
+    _fetchUserAudit(id, 50);         // VF-343: hydrate Activity panel
+  };
+  if (window.NavGuard) NavGuard.guardedNav('switch user', target);
+  else target();
+}
+
+// VF-329 F5: open New User form INSIDE the detail pane (no page nav, master-detail intact).
+function apuNewUser() {
+  const target = function() {
+    apu.selectedId = '__new__';
+    document.querySelectorAll('.apu-row.selected').forEach(r => r.classList.remove('selected'));
+    apuRenderDetail();
+  };
+  if (window.NavGuard) NavGuard.guardedNav('new user', target);
+  else target();
+}
+
+/* ── Detail pane rendering ─────────────────────────── */
+
+function apuRenderDetail() {
+  const el = document.getElementById('apuDetail');
+  if (!apu.selectedId) {
+    el.innerHTML = '<div class="apu-detail-empty"><div class="apu-detail-empty-icon">&#128100;</div><div class="apu-detail-empty-msg">Select a user from the list.</div></div>';
+    return;
+  }
+  // VF-329 F5: sentinel for "+ New" — render new-user form in detail pane.
+  if (apu.selectedId === '__new__') {
+    el.innerHTML = _renderNewUserForm();
+    _wireNewUserForm();
+    return;
+  }
+  const u = apu.users.find(x => x.id === apu.selectedId);
+  if (!u) {
+    el.innerHTML = '<div class="apu-detail-empty"><div class="apu-detail-empty-msg">User not found in current list.</div></div>';
+    return;
+  }
+  el.innerHTML = _renderDetailHead(u) + '<div class="apu-detail-body">' + _renderDetailBody(u) + '</div>';
+  _wireDetailForms(u);
+}
+
+/* VF-329 F5: New User form rendered inline in the detail pane. Keeps the user
+   in the master-detail context. Visual treatment borrows from the old
+   admin_user_new.html — 2-col fields, mono placeholders, helper text below.
+   POSTs to existing /admin/api/users endpoint (unchanged). */
+function _renderNewUserForm() {
+  return '' +
+  '<div class="apu-detail-head">' +
+    '<div class="apu-detail-avatar" style="background:rgba(232,184,74,0.18);color:var(--amber);">+</div>' +
+    '<div style="flex:1;">' +
+      '<div class="apu-detail-name">New user</div>' +
+      '<div class="apu-detail-meta">Create a new account. Username and email immutable after creation.</div>' +
+    '</div>' +
+    '<button type="button" class="ap-btn" onclick="apuCancelNew()" style="align-self:flex-start;">Cancel</button>' +
+  '</div>' +
+  '<div class="apu-detail-body">' +
+    '<form id="apuNewForm" onsubmit="event.preventDefault(); apuDoCreateUser();">' +
+      '<div class="apu-panel">' +
+        '<div class="apu-panel-title">// Profile</div>' +
+        '<div class="apu-form-grid">' +
+          _formField('Username', 'apuNewUsername', 'max 10, lowercase, no spaces', 'Login credential. Lowercase, 1–10 chars.', 'text', true) +
+          _formField('Display name', 'apuNewDisplayName', 'Full name', null, 'text', true) +
+          _formField('Email', 'apuNewEmail', 'email@example.com', null, 'email', true) +
+          _formField('Nickname', 'apuNewNickname', 'Friendly short name', null, 'text', false) +
+          _formField('Title', 'apuNewTitle', 'e.g. Senior Developer', null, 'text', false) +
+          _formField('Display role', 'apuNewDisplayRole', 'e.g. CTO, Tech Lead', 'Vanity label — not a permission.', 'text', false) +
+          _formField('Password', 'apuNewPassword', 'Min 12, upper+lower+num+symbol', null, 'password', true) +
+          _formRoleField() +
+        '</div>' +
+        '<div class="apu-act-row" style="margin-top:16px;">' +
+          '<button type="submit" class="ap-btn primary" id="apuNewBtn">Create user</button>' +
+          '<button type="button" class="ap-btn" onclick="apuCancelNew()">Cancel</button>' +
+          '<span class="apu-status-line" id="apuNewStatus"></span>' +
+        '</div>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+}
+
+function _formField(label, id, placeholder, helper, type, required) {
+  return '' +
+    '<div class="apu-form-field">' +
+      '<label class="apu-form-label" for="' + id + '">' + apuEsc(label) + (required ? '' : ' <span style="color:var(--text-dim);">(optional)</span>') + '</label>' +
+      '<input class="apu-inp" id="' + id + '" type="' + type + '" placeholder="' + apuEsc(placeholder) + '"' + (required ? ' required' : '') + '>' +
+      (helper ? '<div class="apu-form-helper">' + apuEsc(helper) + '</div>' : '') +
+    '</div>';
+}
+
+function _formRoleField() {
+  return '' +
+    '<div class="apu-form-field">' +
+      '<label class="apu-form-label" for="apuNewRole">Role</label>' +
+      '<select class="apu-inp" id="apuNewRole">' +
+        '<option value="viewer" selected>Viewer (read-only)</option>' +
+        '<option value="user">User</option>' +
+        '<option value="super_user">Super User — ESCALATION</option>' +
+      '</select>' +
+      '<div class="apu-form-helper">Default: viewer. Escalation requires deliberate selection.</div>' +
+    '</div>';
+}
+
+function _wireNewUserForm() {
+  if (!window.NavGuard) return;
+  const f = document.getElementById('apuNewForm');
+  if (f) NavGuard.attachForm(f, 'new-user', 'New user form');
+}
+
+function apuCancelNew() {
+  // NavGuard catches if dirty; clearing here just resets selection.
+  const target = function() {
+    if (window.NavGuard) NavGuard.detachForm('new-user');
+    apu.selectedId = null;
+    apuRenderList();
+    apuRenderDetail();
+  };
+  if (window.NavGuard) NavGuard.guardedNav('cancel new user', target);
+  else target();
+}
+
+async function apuDoCreateUser() {
+  const status = document.getElementById('apuNewStatus');
+  const btn = document.getElementById('apuNewBtn');
+  const body = {
+    username: (document.getElementById('apuNewUsername').value || '').trim().toLowerCase(),
+    display_name: (document.getElementById('apuNewDisplayName').value || '').trim(),
+    email: (document.getElementById('apuNewEmail').value || '').trim(),
+    nickname: (document.getElementById('apuNewNickname').value || '').trim() || null,
+    title: (document.getElementById('apuNewTitle').value || '').trim() || null,
+    display_role: (document.getElementById('apuNewDisplayRole').value || '').trim() || null,
+    password: document.getElementById('apuNewPassword').value || '',
+    role: document.getElementById('apuNewRole').value,
+  };
+  if (status) { status.textContent = 'creating…'; status.className = 'apu-status-line'; }
+  if (btn) btn.disabled = true;
+  const { ok, data } = await _apuPost('/admin/api/users', body);
+  if (btn) btn.disabled = false;
+  if (!ok) {
+    if (status) { status.textContent = _formatError(data).slice(0,180); status.className = 'apu-status-line err'; }
+    apuToast('Create failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  if (window.NavGuard) NavGuard.detachForm('new-user');
+  apuToast('User created', '<b>' + apuEsc(body.display_name || body.username) + '</b> added.', 'green');
+  // Reload to refresh the user list with full payload (including memberships, agents).
+  setTimeout(() => location.reload(), 700);
+}
+
+function _renderDetailHead(u) {
+  return '<div class="apu-detail-head">' +
+    '<div class="apu-detail-avatar">' + apuEsc(apuInitials(u.display_name || u.username)) + '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div class="apu-detail-name">' + apuEsc(u.display_name || u.username) + '</div>' +
+      '<div class="apu-detail-meta">' +
+        apuRolePill(u.role) +
+        '<span class="apu-status-pill ' + u.status + '">' + apuEsc(u.status) + '</span>' +
+        ' · ' + apuEsc(u.username) +
+        (u.email ? ' · ' + apuEsc(u.email) : '') +
+      '</div>' +
+    '</div>' +
+    '<div class="apu-detail-id">id: ' + apuEsc(u.id) + '</div>' +
+  '</div>';
+}
+
+function _renderDetailBody(u) {
+  // VF-343 PK feedback 2026-04-28: Actions FIRST so the (variable-length)
+  // Activity panel can grow at the bottom without pushing actions off-screen.
+  let h = _renderActions(u);
+
+  // Profile + Memberships side-by-side (2-col on wide viewports)
+  h += '<div class="apu-grid-2">';
+  // Profile
+  h += '<div class="apu-panel"><div class="apu-panel-title">// Profile</div>' +
+    '<div class="apu-kv-row"><div class="apu-kv-k">Created</div><div class="apu-kv-v">' + (u.created_at ? apuFmt(u.created_at).split(',')[0] : '—') + '</div></div>' +
+    '<div class="apu-kv-row"><div class="apu-kv-k">Last seen</div><div class="apu-kv-v">' + (u.last_login_at ? apuFmt(u.last_login_at) : '—') + '</div></div>' +
+    '<div class="apu-kv-row"><div class="apu-kv-k">Display name</div><div class="apu-kv-v">' + apuEsc(u.display_name) + '</div></div>' +
+    '<div class="apu-kv-row"><div class="apu-kv-k">Email</div><div class="apu-kv-v">' + apuEsc(u.email) + '</div></div>' +
+    '<div class="apu-kv-row"><div class="apu-kv-k">Force pw change</div><div class="apu-kv-v">' + (u.must_change_password ? '<span class="apu-status-pill suspended">yes</span>' : '<span style="color:var(--text-dim);">no</span>') + '</div></div>' +
+  '</div>';
+  // Memberships
+  const mems = u.memberships || [];
+  h += '<div class="apu-panel"><div class="apu-panel-title">// Memberships <span class="apu-panel-count">' + mems.length + '</span></div>';
+  if (mems.length) {
+    h += mems.map(m => {
+      const prefix = (m.slug || '??').split('-').map(s => s[0] || '').slice(0,2).join('').toUpperCase();
+      return '<div class="apu-mem-row">' +
+        '<div class="apu-mem-icon">' + apuEsc(prefix) + '</div>' +
+        '<div class="apu-mem-name">' + apuEsc(m.name || m.slug) + '</div>' +
+        '<div class="apu-mem-role">' + apuEsc(m.role) + '</div>' +
+      '</div>';
+    }).join('');
+  } else {
+    h += '<div style="color:var(--text-muted);font-size:11px;padding:8px 0;">no project memberships</div>';
+  }
+  h += '</div>';
+  h += '</div>';
+
+  // Bound agents (full-width row)
+  const abp = u.agents_by_project || [];
+  const totalActive = abp.reduce((n, p) => n + (p.active || []).length, 0);
+  const totalArchived = abp.reduce((n, p) => n + (p.archive || []).length, 0);
+  h += '<div class="apu-panel"><div class="apu-panel-title">// Bound agents <span class="apu-panel-count">' + totalActive + ' active' + (totalArchived ? ' · ' + totalArchived + ' archived' : '') + '</span></div>';
+  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">1:1 bindings per v3 doc §1.3. Agents are self-service; this user mints them from the Board.</div>';
+  if (abp.length === 0 || (totalActive + totalArchived) === 0) {
+    h += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0;">no agents bound to this user</div>';
+  } else {
+    abp.forEach(p => {
+      (p.active || []).forEach(a => { h += _agentRow(a, p, 'active'); });
+      (p.archive || []).forEach(a => { h += _agentRow(a, p, 'revoked'); });
+    });
+  }
+  h += '</div>';
+
+  // VF-343 PK feedback 2026-04-28: Activity panel at the bottom, parallel to
+  // the Agents workspace pattern. Defaults to last 50 events (authored by this
+  // user); operator can expand up to 200. Not persisted to a separate table —
+  // this is a read-side window over the existing ActivityEvent stream. A
+  // richer Audit Log workspace lands separately.
+  h += _renderUserActivityPanel(u);
+
+  return h;
+}
+
+function _renderUserActivityPanel(u) {
+  const ext = apu.detailAudit;
+  const limit = apu.detailAuditLimit || 50;
+  let body;
+  if (!ext) {
+    body = '<div style="padding:14px 0;color:var(--text-muted);font-size:11px;">Loading recent activity…</div>';
+  } else if (!ext.audit || !ext.audit.length) {
+    body = '<div style="padding:14px 0;color:var(--text-muted);font-size:11px;">No recent activity recorded.</div>';
+  } else {
+    body = ext.audit.map(e =>
+      '<div style="display:grid;grid-template-columns:140px 160px 1fr;gap:10px;padding:7px 0;border-bottom:1px dashed var(--border);font-family:var(--mono);font-size:11px;align-items:baseline;">' +
+        '<div style="color:var(--text-dim);">' + apuEsc(e.t) + '</div>' +
+        '<div style="color:var(--violet-2);font-weight:600;">' + apuEsc(e.e) + '</div>' +
+        '<div style="color:var(--text);word-break:break-word;">' + apuEsc(e.d) + '</div>' +
+      '</div>').join('');
+  }
+  const count = (ext && ext.audit) ? ext.audit.length : 0;
+  const canExpand = (limit < 200) && (count >= limit);
+  const expandBtn = canExpand
+    ? '<div style="text-align:center;padding:12px 0 4px;"><button type="button" class="ap-btn" onclick="apuExpandAudit()">Show more (up to 200)</button></div>'
+    : '';
+  const reachedCap = (limit >= 200);
+  const capNote = reachedCap
+    ? '<div style="text-align:center;padding:10px 0 0;font-family:var(--mono);font-size:10px;color:var(--text-dim);">audit window cap (200) reached — open the audit log workspace for the full history</div>'
+    : '';
+  return '<div class="apu-panel" style="grid-column:1 / -1;">' +
+    '<div class="apu-panel-title"><span>// Recent activity</span><span class="apu-panel-count">last ' + count + ' event(s) &middot; window=' + limit + '</span></div>' +
+    body + expandBtn + capNote +
+  '</div>';
+}
+
+async function _fetchUserAudit(userId, limit) {
+  const url = '/admin/portal/api/users/' + encodeURIComponent(userId) + '/audit?limit=' + (limit || 50);
+  const r = await fetch(url, { credentials: 'same-origin' });
+  if (!r.ok || apu.selectedId !== userId) return;  // moved on
+  const data = await r.json();
+  apu.detailAudit = data;
+  apu.detailAuditLimit = limit || 50;
+  apuRenderDetail();
+}
+
+function apuExpandAudit() {
+  if (!apu.selectedId || apu.selectedId === '__new__') return;
+  apu.detailAudit = null;            // re-show loading state in activity panel
+  apuRenderDetail();
+  _fetchUserAudit(apu.selectedId, 200);
+}
+
+function _agentRow(a, p, status) {
+  const cls = status === 'revoked' ? 'apu-agent-row revoked' : 'apu-agent-row';
+  return '<div class="' + cls + '">' +
+    '<div class="apu-agent-icon">&#129302;</div>' +
+    '<div class="apu-agent-name">' + apuEsc(a.name || a.slug) + '</div>' +
+    '<div class="apu-agent-meta">' + apuEsc(p.name || p.slug) +
+      (a.last_seen_at ? ' · last ' + apuFmt(a.last_seen_at) : '') +
+      ' · ' + apuEsc(status) + '</div>' +
+  '</div>';
+}
+
+function _renderProtectedActions(u) {
+  // VF-343 PK feedback 2026-04-28: SID-500 detected -> padlock everything.
+  return '<div class="apu-panel">' +
+    '<div class="apu-panel-title danger">// Actions · Danger Zone</div>' +
+    '<div class="apu-protected-banner">' +
+      '<span class="apu-protected-tag">&#x1F512; SID-500 DETECTED</span>' +
+      '<b>Protected built-in account</b><br>' +
+      'This is the Super Admin (break-glass) identity — equivalent to Windows SID-500. ' +
+      'Server enforces no-delete, no-suspend, no-role-change, and no-second-SA. ' +
+      'The board UI does not surface management actions for this account by design. ' +
+      'Password rotation / recovery goes through the documented break-glass path.' +
+    '</div>' +
+    '<div class="apu-actions-grid">' +
+      _apuLockedStub('Change role', 'cannot demote SID-500', 'Server returns 422 — "Cannot change Super Admin role."') +
+      _apuLockedStub('Suspend', 'cannot suspend the break-glass identity', 'Server returns 422 — "Cannot suspend Super Admin."') +
+      _apuLockedStub('Force pw change', 'not surfaced for SA', 'Locked by SID-500 treatment - operator cannot flag SA password rotation from the board.') +
+      _apuLockedStub('Reset password', 'rotation goes through break-glass path', 'Locked by SID-500 treatment - SA password rotation requires the break-glass procedure, not the board UI.') +
+      _apuLockedStub('Soft-delete', 'cannot delete SID-500, ever', 'Server returns 422 — "Cannot delete Super Admin. Ever."') +
+    '</div>' +
+  '</div>';
+}
+
+function _apuLockedStub(name, hint, reason) {
+  return '<div class="apu-act protected">' +
+    '<div class="apu-act-name">&#x1F512; ' + apuEsc(name) +
+      ' <span class="apu-act-hint">' + apuEsc(hint) + '</span></div>' +
+    '<div class="apu-act-protected-msg">' + apuEsc(reason) + '</div>' +
+  '</div>';
+}
+
+function _renderActions(u) {
+  // VF-343 PK feedback 2026-04-28: SA = Windows SID-500 equivalent. Padlock
+  // EVERYTHING. Server already enforces no-delete / no-suspend / no-role-change
+  // for super_admin (admin.py:1589/1685/1798); UI mirrors with a banner +
+  // greyed-out informational stubs. Operator cannot manage SA from the board -
+  // recovery / rotation goes through the documented break-glass path.
+  if (u.role === 'super_admin') return _renderProtectedActions(u);
+
+  const isOnlySU = apuIsOnlySU(u);
+  const totalActive = (u.agents_by_project || []).reduce((n, p) => n + (p.active || []).length, 0);
+
+  let h = '<div class="apu-panel"><div class="apu-panel-title danger">// Actions · Danger Zone</div>';
+  h += '<div class="apu-actions-grid" id="apuActionsGrid-' + apuEsc(u.id) + '">';
+
+  // Change role
+  h += '<div class="apu-act danger" id="apu-act-role">' +
+    '<div class="apu-act-name">Change role <span class="apu-act-hint">' + apuEsc(u.role) + ' &rarr; ?</span></div>' +
+    (isOnlySU ? '<div class="apu-guard red"><b>Guard:</b> only active super_user. Create or promote another SU before demoting.</div>' : '') +
+    (u.is_self ? '<div class="apu-guard">You are changing your own role. Demoting yourself out of SU cannot be re-promoted without another SU or break-glass.</div>' : '') +
+    '<div class="apu-act-desc">Escalating to super_user requires typing the username. Demoting to viewer auto-downgrades any project memberships to read.</div>' +
+    '<form class="apu-act-form" id="apuRoleForm" onsubmit="event.preventDefault(); apuDoChangeRole(\'' + apuEsc(u.id) + '\');">' +
+      '<select class="apu-inp" id="apuRoleSel">' +
+        '<option value="viewer"' + (u.role === 'viewer' ? ' selected' : '') + '>viewer — read-only</option>' +
+        '<option value="user"' + (u.role === 'user' ? ' selected' : '') + '>user</option>' +
+        '<option value="super_user"' + (u.role === 'super_user' ? ' selected' : '') + '>super_user — ESCALATION</option>' +
+      '</select>' +
+      '<input class="apu-inp" id="apuRoleConfirm" placeholder="type username \'' + apuEsc(u.username) + '\' to confirm" oninput="apuMatch(this, \'' + apuEsc(u.username) + '\', \'apuRoleBtn\');">' +
+      '<div class="apu-act-row">' +
+        '<button type="submit" class="apu-btn ghost-danger ap-btn ghost-danger" id="apuRoleBtn" disabled>Change role</button>' +
+        '<span class="apu-status-line" id="apuRoleStatus"></span>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+
+  // Suspend / Unsuspend
+  if (u.status === 'active') {
+    h += '<div class="apu-act danger">' +
+      '<div class="apu-act-name">Suspend user <span class="apu-act-hint">blocks login, keeps data</span></div>' +
+      '<div class="apu-act-desc">User can\'t sign in. Sessions revoked immediately. Reversible via Unsuspend.</div>' +
+      (u.is_self ? '<div class="apu-guard red">You cannot suspend yourself.</div>' : '') +
+      '<form class="apu-act-form" id="apuSuspendForm" onsubmit="event.preventDefault(); apuDoSuspend(\'' + apuEsc(u.id) + '\');">' +
+        '<input class="apu-inp" id="apuSuspendReason" placeholder="reason (optional)">' +
+        '<div class="apu-act-row"><button type="submit" class="ap-btn ghost-danger"' + (u.is_self ? ' disabled' : '') + '>Suspend</button>' +
+          '<span class="apu-status-line" id="apuSuspendStatus"></span></div>' +
+      '</form>' +
+    '</div>';
+  } else if (u.status === 'suspended') {
+    h += '<div class="apu-act">' +
+      '<div class="apu-act-name">Unsuspend user</div>' +
+      '<div class="apu-act-desc">Restores login access. Previous sessions still require re-auth.</div>' +
+      '<div class="apu-act-row"><button class="ap-btn primary" onclick="apuDoUnsuspend(\'' + apuEsc(u.id) + '\');">Unsuspend</button>' +
+        '<span class="apu-status-line" id="apuUnsuspendStatus"></span></div>' +
+    '</div>';
+  }
+
+  // Force password change
+  if (u.status !== 'deleted') {
+    h += '<div class="apu-act">' +
+      '<div class="apu-act-name">Force password change <span class="apu-act-hint">non-destructive</span></div>' +
+      '<div class="apu-act-desc">Next login prompts password change. They can still sign in with current password to initiate.</div>' +
+      '<div class="apu-act-row"><button class="ap-btn" onclick="apuDoForceChange(\'' + apuEsc(u.id) + '\');">Set flag</button>' +
+        '<span class="apu-status-line" id="apuForceStatus"></span></div>' +
+    '</div>';
+
+    // Reset password (with reveal slot)
+    h += '<div class="apu-act danger">' +
+      '<div class="apu-act-name">Reset password <span class="apu-act-hint">generates new · shown ONCE</span></div>' +
+      '<div class="apu-act-desc">Generates a secure random password. Shown <b>once</b>. User must change on next login.</div>' +
+      '<div class="apu-act-row"><button class="ap-btn ghost-danger" onclick="apuDoResetPw(\'' + apuEsc(u.id) + '\');">Generate + show</button>' +
+        '<span class="apu-status-line" id="apuResetStatus"></span></div>' +
+      '<div id="apuResetReveal"></div>' +
+    '</div>';
+  }
+
+  // Soft-delete / Restore (span 2 — most destructive)
+  if (u.status === 'deleted') {
+    h += '<div class="apu-act span2">' +
+      '<div class="apu-act-name">Restore user</div>' +
+      '<div class="apu-act-desc">Un-deletes. Returns as suspended; admin must Unsuspend. Previously-revoked agents stay revoked (user mints fresh).</div>' +
+      '<div class="apu-act-row"><button class="ap-btn primary" onclick="apuDoRestoreUser(\'' + apuEsc(u.id) + '\');">Restore</button>' +
+        '<span class="apu-status-line" id="apuRestoreStatus"></span></div>' +
+    '</div>';
+  } else {
+    h += '<div class="apu-act danger span2">' +
+      '<div class="apu-act-name">Soft-delete user <span class="apu-act-hint">auto-revokes their ' + totalActive + ' active agent' + (totalActive === 1 ? '' : 's') + '</span></div>' +
+      (u.role === 'super_admin' ? '<div class="apu-guard red"><b>Guard:</b> Super Admin (break-glass) cannot be deleted, ever. Server returns 422 even if you bypass the UI.</div>' : '') +
+      (isOnlySU ? '<div class="apu-guard red"><b>Guard:</b> only active SU — cannot delete.</div>' : '') +
+      (u.is_self ? '<div class="apu-guard red"><b>Guard:</b> cannot delete yourself.</div>' : '') +
+      '<div class="apu-act-desc">Per v3 §2.2: soft-delete cascades revoke to all ' + totalActive + ' active agents (automatic, audited). Audit trail + agent rows stay. Restore brings user back as suspended; revoked agents stay revoked.</div>' +
+      '<form class="apu-act-form" id="apuDeleteForm" onsubmit="event.preventDefault(); apuDoSoftDelete(\'' + apuEsc(u.id) + '\');">' +
+        '<input class="apu-inp" id="apuDeleteConfirm" placeholder="type username \'' + apuEsc(u.username) + '\' to confirm" oninput="apuMatch(this, \'' + apuEsc(u.username) + '\', \'apuDeleteBtn\');">' +
+        '<div class="apu-act-row">' +
+          '<button type="submit" class="ap-btn danger" id="apuDeleteBtn"' + (isOnlySU || u.is_self || u.role === 'super_admin' ? ' disabled' : '') + ' disabled>Soft-delete</button>' +
+          '<span class="apu-status-line" id="apuDeleteStatus"></span>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+  }
+
+  h += '</div></div>';
+  return h;
+}
+
+/* Wire NavGuard.attachForm on every editable form in the detail pane.
+   Detach happens on successful submit; switching users without submitting fires the guard. */
+function _wireDetailForms(u) {
+  if (!window.NavGuard) return;
+  const name = u.display_name || u.username;
+  const role = document.getElementById('apuRoleForm');
+  const susp = document.getElementById('apuSuspendForm');
+  const del = document.getElementById('apuDeleteForm');
+  if (role) NavGuard.attachForm(role, 'role-' + u.id, 'Change role for ' + name);
+  if (susp) NavGuard.attachForm(susp, 'suspend-' + u.id, 'Suspend reason for ' + name);
+  if (del)  NavGuard.attachForm(del,  'delete-' + u.id,  'Soft-delete confirmation for ' + name);
+}
+
+/* Type-to-confirm matcher */
+function apuMatch(input, expected, btnId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = (input.value || '').trim() !== expected;
+}
+
+/* ── Actions ────────────────────────────────────────── */
+
+async function apuDoChangeRole(id) {
+  const u = apu.users.find(x => x.id === id); if (!u) return;
+  const sel = document.getElementById('apuRoleSel');
+  const status = document.getElementById('apuRoleStatus');
+  const newRole = sel.value;
+  if (status) { status.textContent = 'updating…'; status.className = 'apu-status-line'; }
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/change-role', { role: newRole });
+  if (!ok) {
+    if (status) { status.textContent = 'failed: ' + _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    return;
+  }
+  if (window.NavGuard) NavGuard.detachForm('role-' + id);
+  let msg = 'role: ' + u.role + ' → ' + newRole;
+  if (data.memberships_downgraded > 0) {
+    msg += ' · ' + data.memberships_downgraded + ' membership(s) auto-downgraded to read';
+  }
+  if (status) { status.textContent = 'updated · reloading…'; status.className = 'apu-status-line ok'; }
+  apuToast('Role changed', msg, 'green');
+  setTimeout(() => location.reload(), 700);
+}
+
+async function apuDoSuspend(id) {
+  const reason = (document.getElementById('apuSuspendReason') || {}).value || '';
+  // VF-329 F1: themed confirm replaces browser confirm()
+  const okGo = await apuConfirm({
+    title: 'Suspend user?',
+    body: 'Sessions revoked immediately. The user can still be unsuspended.',
+    okLabel: 'Suspend', tone: 'amber',
+  });
+  if (!okGo) return;
+  const status = document.getElementById('apuSuspendStatus');
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/suspend', { reason });
+  if (!ok) {
+    if (status) { status.textContent = _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    apuToast('Suspend failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  if (window.NavGuard) NavGuard.detachForm('suspend-' + id);
+  apuToast('User suspended', 'Sessions revoked.', 'amber');
+  setTimeout(() => location.reload(), 700);
+}
+
+async function apuDoUnsuspend(id) {
+  // VF-329 F1: themed confirm
+  const okGo = await apuConfirm({
+    title: 'Unsuspend user?',
+    body: 'Restores login access. Previous sessions still require re-auth.',
+    okLabel: 'Unsuspend',
+  });
+  if (!okGo) return;
+  const status = document.getElementById('apuUnsuspendStatus');
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/unsuspend');
+  if (!ok) {
+    if (status) { status.textContent = _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    apuToast('Unsuspend failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  apuToast('User unsuspended', 'Login access restored.', 'green');
+  setTimeout(() => location.reload(), 700);
+}
+
+async function apuDoForceChange(id) {
+  const status = document.getElementById('apuForceStatus');
+  // VF-329 F2: dedicated endpoint that just flips the flag (no password rotation needed)
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/force-password-change');
+  if (!ok) {
+    // VF-329 Bug 1 lands here — was previously toString()'d to [object Object]
+    if (status) { status.textContent = _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    apuToast('Set-flag failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  if (status) { status.textContent = 'flag set'; status.className = 'apu-status-line ok'; }
+  apuToast('Flag set', 'Password change required next login.', 'green');
+  const u = apu.users.find(x => x.id === id);
+  if (u) { u.must_change_password = true; apuRenderDetail(); }
+}
+
+async function apuDoResetPw(id) {
+  const u = apu.users.find(x => x.id === id); if (!u) return;
+  const status = document.getElementById('apuResetStatus');
+  const reveal = document.getElementById('apuResetReveal');
+  if (status) { status.textContent = 'generating…'; status.className = 'apu-status-line'; }
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/reset-password');
+  if (!ok) {
+    if (status) { status.textContent = _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    apuToast('Reset failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  // VF-329 Bug 2 fix: use the actual response key (temp_password) and mount RevealPanel.
+  const pw = data.temp_password;
+  if (!pw) {
+    if (status) { status.textContent = 'no password in response'; status.className = 'apu-status-line err'; }
+    apuToast('Reset failed', 'No password key in API response — contract drift?', 'red');
+    return;
+  }
+  if (status) { status.textContent = 'shown once below — copy and acknowledge'; status.className = 'apu-status-line'; }
+  if (reveal) {
+    reveal.innerHTML = '';
+    if (window.RevealPanel) {
+      // VF-329 F3: password-reset uses "shared with user" wording (admin isn't
+      // saving it for themselves; they're handing it to the end user).
+      RevealPanel.mount(reveal, {
+        kicker: 'GENERATED PASSWORD · SHOWN ONCE',
+        value: pw,
+        label: 'Generated password for ' + (u.display_name || u.username),
+        dangerCopy: 'This password is shown only once. Pass it to ' + (u.display_name || u.username) + ' securely now — they must change it on next login.',
+        ackLabel: 'I have securely shared this with the user',
+      });
+    } else {
+      // Fallback if NavGuard/RevealPanel didn't load
+      reveal.innerHTML = '<div style="font-family:var(--mono);font-size:13px;padding:10px;border:1px solid var(--red);background:var(--bg-panel);border-radius:4px;">' +
+        apuEsc(pw) + '</div>';
+    }
+  }
+}
+
+async function apuDoSoftDelete(id) {
+  // VF-329 F1: themed confirm; F4: drop "by SA" wording (restore is tier-U)
+  const okGo = await apuConfirm({
+    title: 'Soft-delete user?',
+    body: 'This cascades revoke to all the user’s active agents (per v3 §2.2). Restorable.',
+    okLabel: 'Soft-delete', tone: 'danger',
+  });
+  if (!okGo) return;
+  const status = document.getElementById('apuDeleteStatus');
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/soft-delete');
+  if (!ok) {
+    if (status) { status.textContent = _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    apuToast('Delete failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  if (window.NavGuard) NavGuard.detachForm('delete-' + id);
+  apuToast('User soft-deleted', 'Cascade revoke fired.', 'amber');
+  setTimeout(() => location.reload(), 700);
+}
+
+async function apuDoRestoreUser(id) {
+  // VF-329 F1: themed confirm
+  const okGo = await apuConfirm({
+    title: 'Restore user?',
+    body: 'User returns as suspended; admin must Unsuspend to grant login. Previously-revoked agents stay revoked.',
+    okLabel: 'Restore',
+  });
+  if (!okGo) return;
+  const status = document.getElementById('apuRestoreStatus');
+  const { ok, data } = await _apuPost('/admin/api/users/' + id + '/restore');
+  if (!ok) {
+    if (status) { status.textContent = _formatError(data).slice(0,140); status.className = 'apu-status-line err'; }
+    apuToast('Restore failed', apuEsc(_formatError(data)), 'red');
+    return;
+  }
+  apuToast('User restored', 'Now suspended; use Unsuspend to grant login.', 'green');
+  setTimeout(() => location.reload(), 700);
+}
+
+/* Keyboard: Escape closes any reveal warning dialog (handled by NavGuard).
+   No additional handlers here — list/detail are always visible. */
+
+/* ── Boot ──────────────────────────────────────────── */
+apuRenderCounts();
+apuRenderList();
+if (APU_OPEN_ID) apuSelect(APU_OPEN_ID);
+{% endblock %}

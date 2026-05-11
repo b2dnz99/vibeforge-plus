@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Health Dashboard — VibeForge+ Mission Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0f1e; --surface: rgba(15, 23, 42, 0.85); --surface-sub: rgba(20, 30, 50, 0.9);
+    --border: rgba(124, 58, 237, 0.12); --border-strong: rgba(124, 58, 237, 0.25);
+    --accent: #7c3aed; --green: #10b981; --amber: #f59e0b; --red: #ef4444; --blue: #38bdf8;
+    --text: #e2e8f0; --muted: #94a3b8; --subtle: #475569;
+    --font-sans: 'Plus Jakarta Sans', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  body { font-family: var(--font-sans); background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  .neon-bar { height: 3px; background: linear-gradient(90deg, var(--accent), var(--green), var(--accent)); flex-shrink: 0; }
+  .header { display: flex; align-items: center; gap: 12px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .header-radar { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--green); animation: radar 2s ease-out infinite; }
+  @keyframes radar { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.5); } 70% { box-shadow: 0 0 0 8px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .header-title { font-size: 16px; font-weight: 700; }
+  .header-title span { color: var(--green); }
+  .header-status { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .status-pill { font-family: var(--font-mono); font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .status-ok { background: rgba(16,185,129,0.15); color: var(--green); }
+  .status-warn { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .status-error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .header-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+  .main { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+  .stats-row { display: flex; gap: 14px; }
+  .stat-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; position: relative; overflow: hidden; }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .stat-label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
+  .stat-value { font-family: var(--font-mono); font-size: 22px; font-weight: 700; }
+  .stat-sub { font-family: var(--font-mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .panel-title { font-family: var(--font-mono); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .panel-title .icon { font-size: 14px; }
+
+  .container-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,0.06); }
+  .container-row:last-child { border-bottom: none; }
+  .container-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .container-dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .container-dot.stopped, .container-dot.exited { background: var(--red); }
+  .container-dot.restarting { background: var(--amber); animation: blink 1s infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .container-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; flex: 1; }
+  .container-stats { display: flex; gap: 12px; }
+  .container-stat { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+  .container-stat strong { color: var(--text); }
+  .container-uptime { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+  .gauge-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .gauge-label { font-family: var(--font-mono); font-size: 11px; color: var(--muted); width: 60px; flex-shrink: 0; }
+  .gauge-bar { flex: 1; height: 8px; background: rgba(100,116,139,0.2); border-radius: 4px; overflow: hidden; }
+  .gauge-fill { height: 100%; border-radius: 4px; transition: width 0.6s; }
+  .gauge-value { font-family: var(--font-mono); font-size: 11px; font-weight: 600; width: 45px; text-align: right; }
+
+  .db-stat-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(148,163,184,0.06); }
+  .db-stat-row:last-child { border-bottom: none; }
+  .db-stat-label { font-size: 12px; color: var(--muted); }
+  .db-stat-value { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+
+  .nginx-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .nginx-stat { text-align: center; padding: 10px; background: rgba(15,23,42,0.4); border-radius: 8px; }
+  .nginx-stat-value { font-family: var(--font-mono); font-size: 18px; font-weight: 700; }
+  .nginx-stat-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
+
+  .error-panel { background: rgba(239,68,68,0.05); border: 1px dashed rgba(239,68,68,0.3); border-radius: 10px; padding: 16px; text-align: center; }
+  .error-panel .msg { font-size: 13px; color: var(--red); font-weight: 600; }
+  .error-panel .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .ticker { flex-shrink: 0; border-top: 1px solid var(--border); background: rgba(15,23,42,0.95); padding: 8px 24px; display: flex; gap: 24px; align-items: center; overflow-x: auto; scrollbar-width: none; }
+  .ticker::-webkit-scrollbar { display: none; }
+  .ticker-item { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+  .ticker-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .ticker-dot.ok { background: var(--green); }
+  .ticker-dot.warn { background: var(--amber); }
+  .ticker-dot.err { background: var(--red); }
+  .ticker-value { color: var(--text); font-weight: 600; }
+  .ticker-time { color: var(--subtle); font-size: 9px; }
+
+  .loading { text-align: center; padding: 40px; color: var(--muted); font-family: var(--font-mono); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="neon-bar"></div>
+<div class="header">
+  <div class="header-radar" id="headerRadar"></div>
+  <div class="header-title"><span>Health</span> Dashboard</div>
+  <div class="header-status">
+    <span class="status-pill" id="overallStatus">Loading...</span>
+    <span class="header-time" id="pollTime">—</span>
+  </div>
+</div>
+
+<div class="main" id="mainContent">
+  <div class="loading">Connecting to health service...</div>
+</div>
+
+<div class="ticker" id="ticker"></div>
+
+<script>
+var POLL_MS = 5000;
+var _lastData = null;
+
+function colorClass(pct) { return pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--green)'; }
+function gaugeClass(pct) { return pct > 90 ? 'critical' : pct > 75 ? 'warn' : 'ok'; }
+
+function renderDashboard(d) {
+  var vm = d.vm || {};
+  var dk = d.docker || {};
+  var pg = d.postgres || {};
+  // VF-246: renamed nginx -> caddy (kept `nx` var name to minimise churn elsewhere)
+  var nx = d.caddy || d.nginx || {};
+  var errors = d.errors || [];
+
+  // Overall status
+  var statusEl = document.getElementById('overallStatus');
+  var radarEl = document.getElementById('headerRadar');
+  if (errors.length > 0) {
+    statusEl.textContent = errors.length + ' Error' + (errors.length > 1 ? 's' : '');
+    statusEl.className = 'status-pill status-error';
+    radarEl.style.borderColor = 'var(--red)';
+  } else if (vm.disk_percent > 90 || vm.cpu_percent > 90 || vm.memory_percent > 90) {
+    statusEl.textContent = 'Warning';
+    statusEl.className = 'status-pill status-warn';
+    radarEl.style.borderColor = 'var(--amber)';
+  } else {
+    statusEl.textContent = 'All Systems Operational';
+    statusEl.className = 'status-pill status-ok';
+    radarEl.style.borderColor = 'var(--green)';
+  }
+  document.getElementById('pollTime').textContent = 'Polled: just now';
+
+  var html = '';
+
+  // Stats row
+  html += '<div class="stats-row">';
+  html += '<div class="stat-card" style="--stat-color:var(--green);"><div class="stat-card" style="position:relative;">';
+  html += '<div class="stat-label">Uptime</div><div class="stat-value" style="color:var(--green);">' + (vm.uptime || '?') + '</div>';
+  html += '<div class="stat-sub">Since ' + (vm.boot_time ? new Date(vm.boot_time).toLocaleDateString() : '?') + '</div></div></div>';
+
+  html += '<div class="stat-card"><div class="stat-label">CPU</div><div class="stat-value" style="color:' + colorClass(vm.cpu_percent || 0) + ';">' + (vm.cpu_percent || 0) + '%</div>';
+  html += '<div class="stat-sub">' + (vm.cpu_count || '?') + ' cores · ' + (vm.cpu_model || '') + '</div></div>';
+
+  html += '<div class="stat-card"><div class="stat-label">Memory</div><div class="stat-value" style="color:' + colorClass(vm.memory_percent || 0) + ';">' + (vm.memory_used_gb || '?') + ' GB</div>';
+  html += '<div class="stat-sub">of ' + (vm.memory_total_gb || '?') + ' GB (' + (vm.memory_percent || 0) + '%)</div></div>';
+
+  html += '<div class="stat-card"><div class="stat-label">Disk</div><div class="stat-value" style="color:' + colorClass(vm.disk_percent || 0) + ';">' + (vm.disk_percent || 0) + '%</div>';
+  html += '<div class="stat-sub">' + (vm.disk_used_gb || '?') + ' GB of ' + (vm.disk_total_gb || '?') + ' GB</div></div>';
+
+  html += '<div class="stat-card"><div class="stat-label">Containers</div><div class="stat-value" style="color:' + (dk.running === dk.total ? 'var(--green)' : 'var(--amber)') + ';">' + (dk.running || 0) + '/' + (dk.total || 0) + '</div>';
+  html += '<div class="stat-sub">' + (dk.running === dk.total ? 'All running' : 'Some stopped') + '</div></div>';
+  html += '</div>';
+
+  // Panels
+  html += '<div class="panels">';
+
+  // Docker
+  html += '<div class="panel"><div class="panel-title"><span class="icon">🐳</span> Docker Containers</div>';
+  if (dk.status === 'error') {
+    html += '<div class="error-panel"><div class="msg">Cannot connect to Docker</div><div class="sub">' + (dk.error || '') + '</div></div>';
+  } else {
+    (dk.containers || []).forEach(function(c) {
+      var dotCls = c.status === 'running' ? 'running' : c.status === 'restarting' ? 'restarting' : 'stopped';
+      html += '<div class="container-row"><span class="container-dot ' + dotCls + '"></span>';
+      html += '<span class="container-name">' + c.name + '</span>';
+      if (c.status === 'running') {
+        html += '<div class="container-stats"><span class="container-stat">CPU <strong>' + (c.cpu_percent || 0) + '%</strong></span>';
+        html += '<span class="container-stat">MEM <strong>' + (c.memory_mb || 0) + ' MB</strong></span></div>';
+        html += '<span class="container-uptime">' + (c.uptime || '') + '</span>';
+      } else {
+        html += '<span class="container-stat" style="color:var(--red);">' + c.status + '</span>';
+      }
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  // VM
+  html += '<div class="panel"><div class="panel-title"><span class="icon">🖥️</span> VM Resources</div>';
+  if (vm.status === 'error') {
+    html += '<div class="error-panel"><div class="msg">VM stats unavailable</div><div class="sub">' + (vm.error || '') + '</div></div>';
+  } else {
+    ['CPU', 'Memory', 'Disk', 'Swap'].forEach(function(label) {
+      var key = label.toLowerCase() === 'swap' ? 'swap_percent' : label.toLowerCase() + '_percent';
+      var pct = vm[key] || 0;
+      html += '<div class="gauge-row"><span class="gauge-label">' + label + '</span>';
+      html += '<div class="gauge-bar"><div class="gauge-fill ' + gaugeClass(pct) + '" style="width:' + pct + '%;"></div></div>';
+      html += '<span class="gauge-value" style="color:' + colorClass(pct) + ';">' + pct + '%</span></div>';
+    });
+    html += '<div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:var(--subtle);">' + (vm.os || '') + ' · ' + (vm.cpu_count || '') + ' CPU · ' + (vm.memory_total_gb || '') + ' GB RAM · ' + (vm.hostname || '') + '</div>';
+  }
+  html += '</div>';
+
+  // Postgres
+  html += '<div class="panel"><div class="panel-title"><span class="icon">🐘</span> PostgreSQL</div>';
+  if (pg.status === 'error') {
+    html += '<div class="error-panel"><div class="msg">Cannot connect to PostgreSQL</div><div class="sub">' + (pg.error || '') + '</div></div>';
+  } else {
+    var pgRows = [
+      ['Status', '<span style="color:var(--green);">● Connected</span>'],
+      ['Database Size', pg.db_size || '?'],
+      ['Active Connections', (pg.active_connections || 0) + ' / ' + (pg.max_connections || '?')],
+      ['Tables', pg.table_count || '?'],
+      ['Total Rows', (pg.total_rows || 0).toLocaleString()],
+      ['Last Backup', pg.last_backup || '?'],
+      ['Version', pg.version || '?'],
+    ];
+    pgRows.forEach(function(r) {
+      html += '<div class="db-stat-row"><span class="db-stat-label">' + r[0] + '</span><span class="db-stat-value">' + r[1] + '</span></div>';
+    });
+  }
+  html += '</div>';
+
+  // Caddy (VF-246 — replaced the Nginx panel; metrics sourced from Caddy's
+  // Prometheus endpoint at caddy:2019/metrics)
+  html += '<div class="panel"><div class="panel-title"><span class="icon">🌐</span> Caddy</div>';
+  if (nx.status === 'error') {
+    html += '<div class="error-panel"><div class="msg">Cannot reach Caddy</div><div class="sub">' + (nx.error || '') + '</div></div>';
+  } else if (nx.note) {
+    html += '<div style="font-size:12px;color:var(--muted);padding:8px 0;">' + nx.note + '</div>';
+  } else {
+    html += '<div class="nginx-grid">';
+    html += '<div class="nginx-stat"><div class="nginx-stat-value" style="color:var(--green);">' + (nx.active_connections || 0) + '</div><div class="nginx-stat-label">Active Conns</div></div>';
+    html += '<div class="nginx-stat"><div class="nginx-stat-value">' + (nx.total_requests || 0).toLocaleString() + '</div><div class="nginx-stat-label">Total Reqs</div></div>';
+    html += '<div class="nginx-stat"><div class="nginx-stat-value">' + (nx.upstreams_healthy || 0) + '</div><div class="nginx-stat-label">Upstreams Healthy</div></div>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  html += '</div>'; // close panels
+
+  document.getElementById('mainContent').innerHTML = html;
+
+  // Ticker
+  var tickerHtml = '';
+  function ti(cls, label, val, age) {
+    tickerHtml += '<div class="ticker-item"><span class="ticker-dot ' + cls + '"></span> ' + label + ' <span class="ticker-value">' + val + '</span> <span class="ticker-time">' + age + '</span></div>';
+  }
+  ti(gaugeClass(vm.cpu_percent || 0) === 'ok' ? 'ok' : gaugeClass(vm.cpu_percent || 0) === 'warn' ? 'warn' : 'err', 'CPU', (vm.cpu_percent || 0) + '%', POLL_MS/1000 + 's');
+  ti('ok', 'MEM', (vm.memory_used_gb || 0) + ' GB', POLL_MS/1000 + 's');
+  ti(gaugeClass(vm.disk_percent || 0) === 'ok' ? 'ok' : 'warn', 'DISK', (vm.disk_percent || 0) + '%', POLL_MS/1000 + 's');
+  ti('ok', 'DB conns', pg.active_connections || 0, POLL_MS/1000 + 's');
+  (dk.containers || []).forEach(function(c) {
+    ti(c.status === 'running' ? 'ok' : 'err', c.name, c.status === 'running' ? 'UP ' + c.uptime : c.status, POLL_MS/1000 + 's');
+  });
+  ti('ok', 'backup', pg.last_backup || '?', '6h cycle');
+  document.getElementById('ticker').innerHTML = tickerHtml;
+}
+
+function poll() {
+  fetch('/api/health/full')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      _lastData = d;
+      renderDashboard(d);
+    })
+    .catch(function(err) {
+      document.getElementById('overallStatus').textContent = 'Disconnected';
+      document.getElementById('overallStatus').className = 'status-pill status-error';
+      document.getElementById('headerRadar').style.borderColor = 'var(--red)';
+      document.getElementById('pollTime').textContent = 'Connection lost — retrying...';
+    });
+}
+
+poll();
+setInterval(poll, POLL_MS);
+
+// Age the poll time display
+setInterval(function() {
+  if (!_lastData || !_lastData.last_poll) return;
+  var age = Math.round((Date.now() - new Date(_lastData.last_poll).getTime()) / 1000);
+  document.getElementById('pollTime').textContent = 'Polled: ' + age + 's ago';
+}, 1000);
+</script>
+
+</body>
+</html>

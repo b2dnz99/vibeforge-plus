@@ -1,0 +1,9 @@
+# Open source export — these files are stripped from `git archive` exports
+0-MD/SESSION-HANDOFF.md export-ignore
+0-MD/DEPLOY.md export-ignore
+0-MD/layout-mockup-archives/ export-ignore
+.agent-config export-ignore
+ops/certs/ export-ignore
+scripts/fix_task_fields.py export-ignore
+scripts/backfill_short_desc.py export-ignore
+scripts/backfill_short_desc_all.py export-ignore

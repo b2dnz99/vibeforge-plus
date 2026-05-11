@@ -1,0 +1,1869 @@
+{# VF-380 Phase 1 — Proper Onboard Wizard. MC-launched, sidebar-free, no
+   console pane, no actionbar (per PK directive — those were sim-only). CSS
+   class names + visual shape ported faithfully from
+   0-MD/0-Documentation/0-Mockup/2026-05-06-proper-wizard-sim-vf353.html
+   (left wizard-pane only). Real endpoints — no sims, no fake quick-replies,
+   no fake chat, no theme toggle. #}
+<!DOCTYPE html>
+<html lang="en" data-preset="violet">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% if mode == 'resume' %}Resume Onboarding · {{ project.name }}{% else %}New Project Wizard{% endif %} — VibeForge+</title>
+{# VF-390: hydrate the app-wide vf-theme localStorage key so the wizard inherits the
+   user's MC theme + hue. Mirrors the script in base.html so the wizard renders in
+   the same theme as the rest of the app (was hard-coded data-theme="dark" before). #}
+<script id="vf-server-prefs" type="application/json">{{ ui_prefs_json | default('{}') | safe }}</script>
+<script>
+(function() {
+  try {
+    var serverPrefs = JSON.parse(document.getElementById('vf-server-prefs').textContent || '{}');
+    if (serverPrefs && typeof serverPrefs === 'object' && Object.keys(serverPrefs).length > 0) {
+      localStorage.setItem('vf-theme', JSON.stringify(serverPrefs));
+    }
+  } catch(e) {}
+  var p = {};
+  try { p = JSON.parse(localStorage.getItem('vf-theme') || '{}'); } catch(e) {}
+  if (p.dark) document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.setAttribute('data-theme', 'light');
+  if (p.hue) document.documentElement.style.setProperty('--hue', p.hue);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/tokens.css">
+<style>
+/* ============================================================
+   Local layout vars (mockup parity). Tokens (--color-*, --space-*,
+   --hue, --font-*, --radius-*, --transition) come from tokens.css.
+   ============================================================ */
+:root {
+  --w-actionbar: 0px;     /* dropped per PK directive */
+  --h-topbar: 48px;
+  --h-mctopbar: 38px;
+  --h-stripwrap: 80px;
+  /* Mockup helpers that may not be in tokens.css */
+  --color-brand-text: hsl(var(--hue) 68% 75%);
+  --color-brand-soft: hsl(var(--hue) 68% 55% / 0.18);
+  --color-brand-edge: hsl(var(--hue) 68% 55% / 0.35);
+  --color-brand-hover: hsl(var(--hue) 68% 48%);
+  --color-success-bg: rgba(16, 185, 129, 0.13);
+  --color-success-border: rgba(16, 185, 129, 0.35);
+  --color-modal-overlay: rgba(2, 6, 16, 0.78);
+  --shadow-glow: 0 0 24px hsl(var(--hue) 68% 55% / 0.20);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px; line-height: 1.5;
+  overflow: hidden;
+}
+
+/* ============ TOPBAR ============ */
+.topbar {
+  height: var(--h-topbar);
+  padding: 0 var(--space-5);
+  background: var(--color-surface-solid);
+  border-bottom: 1px solid var(--color-border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.06));
+}
+.brand { display: flex; align-items: center; gap: var(--space-3); font-weight: 700; }
+.brand .dot {
+  width: 24px; height: 24px; border-radius: 6px;
+  background: hsl(var(--hue) 68% 55%);
+  display: inline-flex; align-items: center; justify-content: center; color: white;
+  font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+}
+.brand .dot::after { content: 'VF'; }
+.brand .name { color: hsl(var(--hue) 68% 65%); }
+.brand .name b { color: var(--color-text-strong); }
+.brand .tag {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--color-brand-text); background: var(--color-brand-soft);
+  border: 1px solid var(--color-brand-edge);
+  padding: 2px 7px; border-radius: var(--radius-sm, 4px);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.meta-row { display: flex; gap: var(--space-4); font-family: var(--font-mono); font-size: 11px; }
+.meta-item { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.meta-item .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-subtle); }
+.meta-item .value { color: var(--color-text); font-weight: 600; }
+.icon-btns { display: flex; gap: 6px; }
+.icon-btn {
+  width: 30px; height: 30px; border-radius: var(--radius-sm, 4px);
+  background: transparent; border: 1px solid var(--color-border);
+  color: var(--color-text-muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; transition: var(--transition, 160ms);
+  font-family: var(--font-sans);
+}
+.icon-btn:hover { background: var(--color-surface-hover, var(--color-surface-sub)); color: var(--color-text); border-color: var(--color-border-strong); }
+.icon-btn.danger:hover { color: var(--color-danger, #ef4444); border-color: var(--color-danger, #ef4444); }
+
+/* ============ MC SUB-TOPBAR ============ */
+.mc-topbar {
+  height: var(--h-mctopbar);
+  padding: 0 var(--space-5);
+  background: var(--color-bg-deep);
+  border-bottom: 1px solid var(--color-border);
+  display: flex; align-items: center; gap: var(--space-3);
+  font-family: var(--font-sans); font-size: 12px;
+  color: var(--color-text-muted);
+}
+.mc-radar {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: hsl(var(--hue) 68% 55%);
+  box-shadow: 0 0 8px hsl(var(--hue) 68% 55%);
+  position: relative; flex-shrink: 0;
+}
+.mc-radar::after {
+  content: ''; position: absolute; inset: -4px;
+  border: 1px solid hsl(var(--hue) 68% 55% / 0.4); border-radius: 50%;
+  animation: radar-pulse 2.4s ease-out infinite;
+}
+@keyframes radar-pulse { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+.mc-crumb {
+  color: var(--color-text-muted); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px; font-weight: 600;
+}
+.mc-crumb:hover { color: var(--color-brand-text); }
+.mc-crumb-sep { color: var(--color-text-subtle); margin: 0 4px; }
+.mc-crumb-current { color: var(--color-text-strong); font-weight: 700; }
+
+/* ============ STAGE STRIP ============ */
+.stage-strip-wrap {
+  background: var(--color-bg-deep);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-5);
+  height: var(--h-stripwrap);
+}
+.stage-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.stage-pip {
+  background: transparent; border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: default; transition: var(--transition, 160ms);
+  text-align: center; min-height: 50px;
+  font-family: var(--font-sans);
+  color: var(--color-text-muted);
+}
+.stage-pip .num { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-subtle); margin-bottom: 2px; letter-spacing: 0.06em; }
+.stage-pip .lab { font-size: 11px; font-weight: 600; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.stage-pip.active { background: var(--color-brand-soft); border-color: hsl(var(--hue) 68% 55%); box-shadow: var(--shadow-glow); }
+.stage-pip.active .num { color: var(--color-brand-text); }
+.stage-pip.active .lab { color: var(--color-text-strong); }
+.stage-pip.done { background: var(--color-success-bg); border-color: var(--color-success-border); }
+.stage-pip.done .num { color: var(--color-done, #10b981); }
+.stage-pip.done .lab { color: var(--color-done, #10b981); }
+.stage-pip.done .lab::before { content: '✓ '; }
+.stage-rail { margin-top: 8px; height: 3px; background: var(--color-border); border-radius: 2px; overflow: hidden; }
+.stage-rail-fill {
+  height: 100%;
+  background: linear-gradient(90deg, hsl(var(--hue) 68% 55%), var(--color-brand-text));
+  transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============ MAIN — wizard pane only (PK: console + actionbar OUT) ============ */
+.main {
+  height: calc(100vh - var(--h-topbar) - var(--h-mctopbar) - var(--h-stripwrap));
+  overflow: hidden;
+}
+
+/* ============ WIZARD PANE ============ */
+.wizard-pane {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-bg);
+}
+.stage-body { display: none; max-width: 760px; margin: 0 auto; }
+.stage-body.active { display: block; animation: fadeUp 220ms ease-out; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.stage-kicker {
+  font-family: var(--font-mono); font-size: 10px; color: var(--color-brand-text);
+  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;
+}
+.stage-title { font-size: 20px; font-weight: 700; color: var(--color-text-strong); margin-bottom: var(--space-2); line-height: 1.25; }
+.stage-sub { color: var(--color-text-muted); font-size: 13px; margin-bottom: var(--space-4); max-width: 64ch; line-height: 1.5; }
+.stage-sub code { font-family: var(--font-mono); font-size: 11.5px; background: var(--color-surface-sub); padding: 1px 5px; border-radius: 3px; color: var(--color-brand-text); border: 1px solid var(--color-border); }
+
+/* ============ FORM ============ */
+.field { margin-bottom: var(--space-4); }
+.field-label { display: block; font-size: 12px; font-weight: 600; color: var(--color-text); margin-bottom: var(--space-2); }
+.field-label .req { color: var(--color-danger, #ef4444); }
+.field-help { font-size: 11px; color: var(--color-text-subtle); margin-top: var(--space-1); }
+.field-warn { font-size: 11px; color: var(--color-warn, #f59e0b); margin-top: var(--space-1); display: none; }
+.field-warn.show { display: block; }
+.input, .select, .textarea {
+  width: 100%; padding: var(--space-3);
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text); font-family: var(--font-sans); font-size: 13px;
+  transition: var(--transition, 160ms);
+}
+.input:focus, .select:focus, .textarea:focus {
+  outline: none; border-color: hsl(var(--hue) 68% 55%);
+  box-shadow: 0 0 0 3px var(--color-brand-soft);
+}
+.input.mono { font-family: var(--font-mono); font-size: 12px; }
+.textarea { resize: vertical; min-height: 70px; font-family: var(--font-mono); font-size: 12px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+
+/* VF-390: native <select> dropdown options inherit OS-default colours which
+   render unreadably (light grey on white) on top of our dark theme. Force
+   readable fg/bg on option elements; works in Chromium/Edge/Firefox. */
+.select option {
+  background: var(--color-surface-solid, #0f172a);
+  color: var(--color-text);
+}
+[data-theme="light"] .select option {
+  background: #ffffff;
+  color: #1e293b;
+}
+
+details.advanced {
+  margin-top: var(--space-3); padding: var(--space-3);
+  background: var(--color-surface-sub); border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+}
+details.advanced summary { cursor: pointer; font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; user-select: none; }
+details.advanced[open] summary { margin-bottom: var(--space-3); }
+
+/* ============ BUTTONS ============ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2); padding: var(--space-3) var(--space-5);
+  background: hsl(var(--hue) 68% 55%); color: white;
+  border: 1px solid hsl(var(--hue) 68% 55%); border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-sans); font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: var(--transition, 160ms);
+  text-decoration: none;
+}
+.btn:hover:not([disabled]) { background: var(--color-brand-hover); transform: translateY(-1px); box-shadow: var(--shadow-glow); }
+.btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.btn.secondary { background: transparent; color: var(--color-text); border-color: var(--color-border-strong); }
+.btn.secondary:hover:not([disabled]) { background: var(--color-surface-hover, var(--color-surface-sub)); border-color: hsl(var(--hue) 68% 55%); color: var(--color-brand-text); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--color-text-muted); }
+.btn.ghost:hover:not([disabled]) { background: var(--color-surface-hover, var(--color-surface-sub)); color: var(--color-text); }
+
+.copy-block {
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-3);
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--color-text);
+  white-space: pre-wrap; word-break: break-word;
+  position: relative; margin-bottom: var(--space-3);
+  max-height: 320px; overflow-y: auto;
+  line-height: 1.45;
+}
+.copy-block .copy-affordance { position: absolute; top: var(--space-2); right: var(--space-2); }
+.btn.copy {
+  padding: 4px 10px; font-size: 10px;
+  background: var(--color-brand-soft); border-color: var(--color-brand-edge);
+  color: var(--color-brand-text); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.btn.copy:hover:not([disabled]) { background: hsl(var(--hue) 68% 55%); color: white; }
+.btn.copy.copied { background: var(--color-done, #10b981); color: white; border-color: var(--color-done, #10b981); }
+
+.stage-cta { margin-top: var(--space-5); display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+.stage-back { margin-right: auto; }
+.stage-hint { font-size: 11px; color: var(--color-text-subtle); font-style: italic; }
+
+/* Status banner */
+.stage-status {
+  display: flex; gap: var(--space-3); align-items: flex-start;
+  padding: var(--space-4);
+  background: var(--color-surface-sub);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warn, #f59e0b);
+  border-radius: var(--radius-sm, 4px);
+  margin-bottom: var(--space-3);
+  transition: var(--transition, 160ms);
+}
+.stage-status.working { border-left-color: hsl(var(--hue) 68% 55%); background: var(--color-brand-soft); }
+.stage-status.done    { border-left-color: var(--color-done, #10b981); background: var(--color-success-bg); }
+.stage-status-icon { font-size: 22px; line-height: 1; flex-shrink: 0; padding-top: 2px; }
+.stage-status-body { flex: 1; min-width: 0; }
+.stage-status-title { font-size: 13px; font-weight: 700; color: var(--color-text-strong); margin-bottom: 2px; }
+.stage-status-desc { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; }
+.stage-status-desc code { font-family: var(--font-mono); font-size: 11px; background: var(--color-surface-solid); padding: 1px 5px; border-radius: 3px; color: var(--color-brand-text); border: 1px solid var(--color-border); }
+
+.summary-card {
+  background: var(--color-surface-sub);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-5); }
+.summary-section h4 {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--color-brand-text); margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: 6px;
+}
+.summary-section h4 .ic { font-size: 12px; }
+.summary-row { display: grid; grid-template-columns: 90px 1fr; gap: var(--space-2); padding: 3px 0; font-size: 12px; }
+.summary-row .k { color: var(--color-text-subtle); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.summary-row .v { color: var(--color-text); word-break: break-word; }
+
+/* ============ TOKEN CARD (Stage 4) ============ */
+.token-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: var(--space-4);
+  overflow: hidden;
+}
+.token-header {
+  background: var(--color-brand-soft);
+  border-bottom: 1px solid var(--color-brand-edge);
+  padding: var(--space-3) var(--space-4);
+  display: flex; gap: var(--space-3); align-items: center;
+}
+.token-icon { font-size: 22px; }
+.token-meta-name { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--color-text-strong); }
+.token-meta-sub { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+.token-meta-sub strong { color: var(--color-text); }
+.token-body { padding: var(--space-3) var(--space-4); font-family: var(--font-mono); font-size: 12px; }
+.token-line { display: flex; gap: var(--space-3); padding: 4px 0; align-items: baseline; }
+.token-line .k { color: var(--color-text-subtle); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; min-width: 130px; }
+.token-line code {
+  flex: 1; background: var(--color-surface-sub);
+  padding: 4px 8px; border-radius: 3px;
+  border: 1px solid var(--color-border);
+  color: var(--color-brand-text);
+  word-break: break-all;
+}
+.token-actions {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-deep);
+}
+.token-download-btn {
+  width: 100%;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: hsl(var(--hue) 68% 55%); color: white;
+  border: 1px solid hsl(var(--hue) 68% 55%); border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-sans); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: var(--transition, 160ms);
+  text-decoration: none;
+}
+.token-download-btn:hover:not([disabled]) { background: var(--color-brand-hover); transform: translateY(-1px); box-shadow: var(--shadow-glow); }
+.token-download-btn .dl-icon { font-size: 16px; flex-shrink: 0; }
+.token-download-btn .dl-label { flex: 1; text-align: left; }
+.token-download-btn .dl-label code { background: rgba(255,255,255,0.18); padding: 1px 5px; border-radius: 3px; font-family: var(--font-mono); font-size: 11px; }
+.token-download-btn .dl-meta { font-family: var(--font-mono); font-size: 10px; opacity: 0.85; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.06em; }
+.token-help {
+  background: var(--color-surface-sub);
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-4);
+  font-size: 12px; color: var(--color-text-muted);
+}
+.token-help-tag {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
+  padding: 1px 6px; border-radius: 3px;
+  background: var(--color-warn, #f59e0b); color: #1a0e02;
+  vertical-align: 1px;
+}
+.token-help-tag.optional {
+  background: var(--color-surface-solid); color: var(--color-text-subtle);
+  border: 1px solid var(--color-border);
+}
+.token-help p { margin: 0 0 4px; }
+.token-help p:last-child { margin: 0; }
+.token-help code { font-family: var(--font-mono); font-size: 11px; background: var(--color-surface-solid); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--color-border); color: var(--color-brand-text); }
+
+/* ============ WATCH SUBSTEPS (Stage 6) ============ */
+.watch-substeps { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.ws-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 90px;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-sub);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  align-items: flex-start;
+  transition: var(--transition, 160ms);
+}
+.ws-row.active {
+  background: var(--color-brand-soft);
+  border-color: var(--color-brand-edge);
+  border-left-color: hsl(var(--hue) 68% 55%);
+}
+.ws-row.done {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
+  border-left-color: var(--color-done, #10b981);
+  opacity: 0.85;
+}
+.ws-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border-strong);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.ws-row.active .ws-num { background: hsl(var(--hue) 68% 55%); color: white; border-color: hsl(var(--hue) 68% 55%); box-shadow: 0 0 8px hsl(var(--hue) 68% 55%); }
+.ws-row.done .ws-num { background: var(--color-done, #10b981); color: white; border-color: var(--color-done, #10b981); }
+.ws-name { font-size: 13px; font-weight: 600; color: var(--color-text); }
+.ws-row.active .ws-name { color: var(--color-text-strong); }
+.ws-desc { font-size: 11.5px; color: var(--color-text-muted); margin-top: 2px; line-height: 1.45; }
+.ws-status {
+  font-family: var(--font-mono); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--color-text-subtle);
+  text-align: right;
+  padding-top: 6px;
+}
+.ws-row.active .ws-status { color: var(--color-brand-text); }
+.ws-row.done .ws-status { color: var(--color-done, #10b981); }
+.ws-row.active .ws-status::before { content: '▸ '; }
+
+.ws-echo {
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px var(--space-3);
+  margin-top: var(--space-2);
+  font-size: 11px;
+  color: var(--color-text);
+  display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap;
+}
+.ws-echo-key {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-sub);
+  padding: 1px 6px; border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+.ws-echo-val { color: var(--color-text-strong); font-weight: 600; word-break: break-word; }
+
+/* Real-wizard affordance: tooltip-style note shown on chat-* substeps when
+   active. No buttons (PK directive: user types in their REAL CLI). */
+.ws-affordance {
+  display: flex; gap: var(--space-3); align-items: flex-start;
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-3);
+  margin-top: var(--space-2);
+}
+.ws-aff-icon { font-size: 16px; flex-shrink: 0; line-height: 1.2; padding-top: 1px; }
+.ws-aff-body { flex: 1; min-width: 0; }
+.ws-aff-text { font-size: 12px; color: var(--color-text); line-height: 1.5; }
+.ws-aff-text strong { color: var(--color-text-strong); }
+
+.watch-poll-status {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-deep);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-3);
+}
+.watch-poll-status code { color: var(--color-brand-text); font-size: 10px; }
+.poll-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--color-done, #10b981);
+  box-shadow: 0 0 8px var(--color-done, #10b981);
+  animation: poll-pulse 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes poll-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ============ FILES PANEL (option b: paths + hashes only) ============ */
+.files-card {
+  background: var(--color-surface-sub);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-3) var(--space-4);
+  margin-top: var(--space-3);
+}
+.files-card h4 {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--color-brand-text); margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: 6px;
+}
+.files-card h4 .ct {
+  background: var(--color-brand-soft); color: var(--color-brand-text);
+  border-radius: 9px; padding: 1px 7px; font-size: 9px;
+}
+.files-row {
+  display: flex; gap: var(--space-3); align-items: baseline;
+  padding: 5px 0; font-size: 11px;
+  border-bottom: 1px dashed var(--color-border);
+}
+.files-row:last-child { border-bottom: none; }
+.files-row .path { font-family: var(--font-mono); color: var(--color-text); flex: 1; word-break: break-all; }
+.files-row .hash { font-family: var(--font-mono); color: var(--color-text-subtle); font-size: 10px; }
+.files-empty { color: var(--color-text-subtle); font-style: italic; font-size: 12px; padding: var(--space-2) 0; }
+
+/* ============ CLOSE-PENDING BANNER ============ */
+.ws-cp-banner {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-sub);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warn, #f59e0b);
+  border-radius: var(--radius-sm, 4px);
+}
+.ws-cp-row { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.ws-cp-kicker {
+  font-family: var(--font-mono); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--color-warn, #f59e0b); font-weight: 700;
+}
+.ws-cp-headline { flex: 1; font-size: 12px; font-weight: 600; color: var(--color-text-strong); }
+.ws-cp-body { margin-top: var(--space-2); font-size: 11.5px; color: var(--color-text-muted); line-height: 1.5; }
+.ws-cp-body code { font-family: var(--font-mono); font-size: 10.5px; background: var(--color-surface-solid); color: var(--color-brand-text); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--color-border); }
+.ws-cp-ticket-row {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px; display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;
+}
+.ws-cp-ticket-link {
+  color: var(--color-brand-text); font-family: var(--font-mono); font-weight: 600;
+  text-decoration: none; padding: 3px 8px;
+  background: var(--color-brand-soft); border: 1px solid var(--color-brand-edge);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: var(--transition, 160ms);
+}
+.ws-cp-ticket-link:hover { background: hsl(var(--hue) 68% 55%); color: white; text-decoration: none; }
+.ws-cp-skip {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-deep);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+}
+.ws-cp-skip-summary {
+  cursor: pointer; user-select: none;
+  font-family: var(--font-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--color-text-subtle);
+  padding: 4px 0;
+}
+.ws-cp-skip-summary:hover { color: var(--color-text); }
+.ws-cp-skip[open] .ws-cp-skip-summary { color: var(--color-warn, #f59e0b); margin-bottom: var(--space-2); }
+.ws-cp-skip-form { display: flex; flex-direction: column; gap: var(--space-2); }
+.ws-cp-skip-warn {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.30);
+  border-radius: 3px;
+  font-size: 11px; color: var(--color-text); line-height: 1.5;
+}
+.ws-cp-skip-rationale {
+  width: 100%; padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  color: var(--color-text); font-family: var(--font-mono); font-size: 11px;
+  resize: vertical; min-height: 60px;
+}
+.ws-cp-skip-rationale:focus { outline: none; border-color: var(--color-warn, #f59e0b); box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18); }
+.ws-cp-skip-actions { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.ws-cp-skip-submit {
+  padding: 6px 14px; font-size: 11px;
+  background: var(--color-warn, #f59e0b); color: #1a0e02;
+  border: 1px solid var(--color-warn, #f59e0b); border-radius: 3px;
+  font-family: var(--font-sans); font-weight: 700; cursor: pointer;
+}
+.ws-cp-skip-submit[disabled] { opacity: 0.4; cursor: not-allowed; }
+.ws-cp-skip-counter { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-subtle); }
+.ws-cp-skip-counter.ok { color: var(--color-done, #10b981); }
+
+.complete-card {
+  text-align: center; padding: var(--space-7) var(--space-6);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-md, 8px);
+  margin-top: var(--space-4);
+}
+.complete-card .check {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--color-done, #10b981); color: white;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 24px; margin-bottom: var(--space-3);
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.4);
+}
+.complete-card h3 { font-size: 18px; color: var(--color-text-strong); margin-bottom: var(--space-2); }
+.complete-card p { color: var(--color-text-muted); max-width: 50ch; margin: 0 auto; font-size: 13px; }
+
+/* ============ TOAST + MODAL ============ */
+.toast {
+  position: fixed; bottom: var(--space-6); right: var(--space-6);
+  padding: var(--space-3) var(--space-4); background: var(--color-surface-solid);
+  border: 1px solid var(--color-success-border); border-radius: var(--radius-sm, 4px);
+  color: var(--color-text); font-size: 12px; font-weight: 600;
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,0.12)); transform: translateY(20px); opacity: 0;
+  transition: all 200ms; z-index: 100;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.danger { border-color: rgba(239,68,68,0.5); color: var(--color-danger, #ef4444); }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: var(--color-modal-overlay);
+  display: none; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-overlay.show { display: flex; animation: fadeIn 200ms; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  /* VF-390: tokens.css makes --color-surface-solid partially transparent in dark
+     theme; modals MUST be opaque or background content bleeds through. Force
+     a guaranteed-solid colour per theme. */
+  background: #0f172a;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-7);
+  max-width: 580px; width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+[data-theme="light"] .modal { background: #ffffff; }
+.modal.modal-framing-gate {
+  max-width: 760px; padding: 0;
+  max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.modal-framing-gate .fg-kicker {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--color-brand-text);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  padding: var(--space-5) var(--space-7) 0;
+}
+.modal-framing-gate .fg-title {
+  font-size: 22px; font-weight: 700; color: var(--color-text-strong);
+  padding: 6px var(--space-7) var(--space-3);
+  margin: 0; line-height: 1.2;
+}
+.fg-context {
+  padding: var(--space-3) var(--space-7);
+  background: var(--color-surface-sub);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px; color: var(--color-text-muted);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.fg-context-line strong { color: var(--color-text); }
+.fg-tldr {
+  margin: var(--space-4) var(--space-7);
+  padding: var(--space-4);
+  background: hsl(var(--hue) 68% 55% / 0.08);
+  border: 1px solid var(--color-brand-edge);
+  border-left: 4px solid hsl(var(--hue) 68% 55%);
+  border-radius: var(--radius-sm, 4px);
+}
+.fg-tldr-kicker {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--color-brand-text);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: var(--space-2); font-weight: 700;
+}
+.fg-tldr p { margin: 0; font-size: 13.5px; color: var(--color-text); line-height: 1.55; }
+.fg-intro-note {
+  padding: 0 var(--space-7);
+  font-size: 12px; color: var(--color-text-subtle);
+  font-style: italic;
+  margin: 0 0 var(--space-3) 0 !important;
+}
+.fg-expand-btn {
+  margin: 0 var(--space-7) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--color-surface-sub);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text); font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: var(--transition, 160ms);
+  text-align: left;
+}
+.fg-expand-btn:hover { background: var(--color-surface-hover, var(--color-surface-sub)); border-color: hsl(var(--hue) 68% 55%); color: var(--color-brand-text); }
+.fg-expand-icon { display: inline-block; transition: transform 200ms; color: var(--color-brand-text); flex-shrink: 0; }
+.fg-expand-btn[aria-expanded="true"] .fg-expand-icon { transform: rotate(90deg); }
+.fg-expand-label { flex: 1; }
+.fg-expand-meta { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-subtle); text-transform: uppercase; letter-spacing: 0.06em; }
+.fg-framing-scroll {
+  flex: 1; overflow-y: auto;
+  padding: var(--space-4) var(--space-7);
+  background: var(--color-bg-deep);
+  border-top: 1px solid var(--color-border);
+  font-size: 13px; color: var(--color-text); line-height: 1.6;
+  max-height: 50vh;
+  transition: max-height 280ms cubic-bezier(0.4, 0, 0.2, 1), padding 220ms, border-color 220ms;
+}
+.fg-framing-scroll.collapsed { max-height: 0; padding-top: 0; padding-bottom: 0; border-top-color: transparent; flex: 0 0 auto; }
+.fg-framing-scroll h2 { font-size: 16px; color: var(--color-brand-text); font-weight: 700; margin: var(--space-4) 0 var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.fg-framing-scroll h2:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.fg-framing-scroll h3 { color: var(--color-brand-text); font-size: 14px; font-weight: 700; margin: var(--space-4) 0 var(--space-2); }
+.fg-framing-scroll p { margin: 0 0 var(--space-3); }
+.fg-framing-scroll ol, .fg-framing-scroll ul { margin: 0 0 var(--space-3); padding-left: var(--space-5); }
+.fg-framing-scroll li { margin: 0 0 6px; line-height: 1.55; }
+.fg-framing-scroll code { font-family: var(--font-mono); font-size: 11.5px; background: var(--color-surface-sub); color: var(--color-brand-text); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--color-border); }
+.fg-framing-scroll strong { color: var(--color-text-strong); font-weight: 700; }
+.fg-framing-scroll em { color: var(--color-text); }
+.fg-actions {
+  padding: var(--space-4) var(--space-7);
+  background: var(--color-surface-solid);
+  border-top: 1px solid var(--color-border);
+  display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end;
+}
+.fg-counter { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-subtle); margin-right: auto; padding-left: var(--space-3); }
+.fg-counter.ready { color: var(--color-done, #10b981); }
+
+.modal.modal-info { max-width: 520px; padding: var(--space-7); }
+.info-kicker { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-warn, #f59e0b); font-weight: 700; margin-bottom: var(--space-2); }
+.info-title { font-size: 18px; font-weight: 700; color: var(--color-text-strong); margin-bottom: var(--space-3); line-height: 1.3; }
+.info-body { color: var(--color-text); font-size: 13px; line-height: 1.55; margin-bottom: var(--space-4); }
+.info-body p { margin-bottom: var(--space-3); }
+.info-body p:last-child { margin-bottom: 0; }
+.info-body code { font-family: var(--font-mono); font-size: 11.5px; background: var(--color-surface-sub); color: var(--color-brand-text); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--color-border); }
+.modal-actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-5); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="dot"></div>
+    <span class="name"><b>VibeForge</b>+</span>
+    <span class="tag">Mission Control</span>
+  </div>
+  <div class="meta-row">
+    <div class="meta-item"><span class="label">Project</span><span class="value" id="meta-project">—</span></div>
+    <div class="meta-item"><span class="label">Agent</span><span class="value" id="meta-agent">—</span></div>
+    <div class="meta-item"><span class="label">Stage</span><span class="value" id="meta-stage">1 / 7</span></div>
+  </div>
+  <div class="icon-btns">
+    <button class="icon-btn danger" id="reset-btn" title="{% if mode == 'resume' %}Reset onboard state (server-side wipe — escape hatch){% else %}Reset wizard (pre-commit only){% endif %}">↻</button>
+  </div>
+</header>
+
+<div class="mc-topbar">
+  <div class="mc-radar"></div>
+  <a class="mc-crumb" href="/ui/">Mission Control</a>
+  <span class="mc-crumb-sep">›</span>
+  <span class="mc-crumb-current">{% if mode == 'resume' %}{{ project.name }}{% else %}+ New Project{% endif %}</span>
+</div>
+
+<div class="stage-strip-wrap">
+  <div class="stage-strip" id="stage-strip"></div>
+  <div class="stage-rail"><div class="stage-rail-fill" id="stage-rail-fill" style="width: 16%;"></div></div>
+</div>
+
+<div class="main">
+  <section class="wizard-pane" id="wizard-pane"></section>
+</div>
+
+<!-- Framing-gate overlay (Stage 3 commit pre-flight) -->
+<div class="modal-overlay" id="modal-framing">
+  <div class="modal modal-framing-gate">
+    <div class="fg-kicker">// FRAMEWORK FRAMING · please read before we create your project</div>
+    <h2 class="fg-title">VibeForge+ is a framework, not an enforcer.</h2>
+    <div class="fg-context">
+      <span class="fg-context-line">You're about to create <strong id="fg-proj">—</strong> with <strong id="fg-agent">—</strong> as your first agent.</span>
+      <span class="fg-context-line">After accepting, your agent will surface the full framing in chat as the first onboard substep.</span>
+    </div>
+    <div class="fg-tldr">
+      <div class="fg-tldr-kicker">// TL;DR</div>
+      <p><strong>You are the enforcer.</strong> VibeForge+ provides the surfaces, gates, and verbs — the discipline lives where you put it. The framework holds it if you do.</p>
+    </div>
+    <p class="fg-intro-note">Your agent will paste the full framing into chat as the first onboard substep — you'll see it (and acknowledge it) there. Optional preview below if you want a head-start.</p>
+    <button class="fg-expand-btn" id="fg-expand-btn" type="button" aria-expanded="false" aria-controls="fg-framing-scroll">
+      <span class="fg-expand-icon">▸</span>
+      <span class="fg-expand-label">Show full framing text</span>
+      <span class="fg-expand-meta">~700 words · 3 min read</span>
+    </button>
+    <div class="fg-framing-scroll collapsed" id="fg-framing-scroll" aria-label="Full framing text">{{ framing_html | safe }}</div>
+    <div class="fg-actions">
+      <span class="fg-counter" id="fg-counter">Please read · accept enables in 6s</span>
+      <button class="btn ghost" id="fg-cancel">← Back to review</button>
+      <button class="btn" id="fg-confirm" disabled>I understand · create my project →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generic info modal (Open: button explainer in Stage 6 close-pending) -->
+<div class="modal-overlay" id="modal-info">
+  <div class="modal modal-info">
+    <div class="info-kicker">// INFO</div>
+    <h2 class="info-title" id="info-title"></h2>
+    <div class="info-body" id="info-body"></div>
+    <div class="modal-actions">
+      <button class="btn" id="info-close">Got it</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// Server-injected context
+// ============================================================
+const VF = {
+  mode: {{ mode | tojson }},
+  humanName: {{ human_name | tojson }},
+  boardApiUrl: {{ board_api_url | tojson }},
+  boardRootUrl: {{ board_root_url | tojson }},
+  wizardExpirySeconds: {{ wizard_expiry_seconds | default(86400) | tojson }},
+  vendorOptions: [
+    { value: 'claude',  label: 'Claude (writes to CLAUDE.md)', mdFile: 'CLAUDE.md',  cli: 'Claude Code' },
+    { value: 'codex',   label: 'Codex (writes to AGENTS.md)',  mdFile: 'AGENTS.md',  cli: 'Codex CLI' },
+    { value: 'cursor',  label: 'Cursor (writes to AGENTS.md)', mdFile: 'AGENTS.md',  cli: 'Cursor' },
+    { value: 'generic', label: 'Generic (writes to AGENTS.md)',mdFile: 'AGENTS.md',  cli: 'your agent' },
+  ],
+  {% if mode == 'resume' %}
+  project: {{ project_json | safe }},
+  agent: {{ agent_json | safe }},
+  onboardState: {{ onboard_state_json | safe }},
+  {% else %}
+  project: null,
+  agent: null,
+  onboardState: null,
+  {% endif %}
+};
+
+// VF-391: split close-ceremony out of the Stage 6 watch view into its own
+// dedicated final stage. Stage 6 watches substeps 1-6 (machine progress);
+// Stage 7 surfaces the close-ceremony (human-driven). Transition between
+// 6 and 7 is human-clicked, NOT auto-advance (per PK refinement).
+const STAGES = [
+  { key: 'project',   label: 'Project',     group: 'SETUP' },
+  { key: 'agent',     label: 'Agent',       group: 'SETUP' },
+  { key: 'commit',    label: 'Acknowledge', group: 'SETUP' },
+  { key: 'token',     label: 'Token',       group: 'AGENT ONBOARDING' },
+  { key: 'bootstrap', label: 'Bootstrap',   group: 'AGENT ONBOARDING' },
+  { key: 'watch',     label: 'Onboarding',  group: 'AGENT ONBOARDING' },
+  { key: 'ceremony',  label: 'First close', group: 'CLOSE CEREMONY' },
+];
+
+const WATCH_SUBSTEPS = [
+  { key: 'framing_acknowledged', name: "How we'll work together",
+    desc: 'Your agent reads you the framework intro, asks you to agree, and records your reply for the record.',
+    chat: true,
+    cliHint: 'Reply in your CLI when the agent asks for your acknowledgement.' },
+  { key: 'tooling_hash', name: 'Doc tools',
+    desc: 'Board-shipped helper files land at 0-MD/.tools/ — TOC builder, doc renderer, styled template, README. Defaults; edit later if you want.',
+    chat: false },
+  { key: 'doc_complexity', name: 'Doc depth',
+    desc: 'Agent asks how thorough the doc setup should be — minimal, medium, or heavy.',
+    chat: true,
+    cliHint: 'Reply in your CLI: "minimal", "medium", or "heavy".' },
+  { key: 'compaction_practice', name: 'Session handover practice',
+    desc: 'Agent walks you through how it stays sharp across long sessions. Quick teach + your acknowledgement.',
+    chat: true,
+    cliHint: 'Reply in your CLI ("skip" is fine, or any acknowledgement ≥4 chars).' },
+  { key: 'plan_hash', name: 'Project plan',
+    desc: 'Agent talks the plan with you in chat, then writes it to 0-MD/0-Documentation/internal/initial_plan.md.',
+    chat: true,
+    cliHint: 'Discuss the plan with your agent in your CLI.' },
+  { key: 'agent_md_hash', name: 'Agent rules file',
+    desc: 'Discipline manifest the agent reads on every session start. CLAUDE.md for Claude; AGENTS.md for everyone else.',
+    chat: false },
+  // VF-391: first_close_complete moved out of the watch view into Stage 7 (ceremony).
+  // The substep itself still exists server-side; the wizard just surfaces it on a
+  // dedicated screen where the human can act on it deliberately.
+];
+
+const STATE = {
+  stage: 0,
+  done: STAGES.map(() => false),
+  project: VF.project || { name: '', slug: '', prefix: '', desc: '' },
+  agent:   VF.agent   || { name: '', vendor: 'claude', desc: '', agent_md: 'CLAUDE.md' },
+  token: { display: null, downloadUrl: null, agentId: null },
+  onboardState: VF.onboardState || {},
+  watchTimer: null,
+  pollLastAt: null,
+};
+
+// Resume mode — figure out the right stage from server-side onboard_state.
+// Stages 1-3 always done (project + agent committed by definition in resume).
+// Stages 4 (token) + 5 (bootstrap) are browser-state-only; server can't tell
+// whether the user clicked through. VF-391: 7 stages now (added Stage 7 ceremony).
+//   - empty onboard_state           -> Stage 4 (token re-download)
+//   - any substep stamped, not 6    -> Stage 6 (watch)
+//   - substep 6 done, not 7         -> Stage 7 (ceremony, close-pending)
+//   - fully complete                -> Stage 7 (ceremony, celebration card)
+if (VF.mode === 'resume' && VF.project) {
+  const os = VF.onboardState || {};
+  const operationallyComplete = !!(os.agent_md_hash && os.completed_at);
+  const fullyComplete = operationallyComplete && !!os.first_close_complete;
+  const anyStamped = !!(os.framing_acknowledged || os.tooling_hash || os.doc_complexity ||
+                       os.compaction_practice || os.plan_hash || os.agent_md_hash ||
+                       os.first_close_complete || os.completed_at);
+  // VF-382: post-completion expiry. If completed_at + wizard_expiry_seconds has passed,
+  // render the wizard as "expired" instead of dropping the user back into the flow.
+  let expired = false;
+  if (os.completed_at) {
+    try {
+      const ageSec = (Date.now() - new Date(os.completed_at).getTime()) / 1000;
+      expired = ageSec > Number(VF.wizardExpirySeconds || 86400);
+    } catch (e) { /* defensive — show wizard */ }
+  }
+  STATE.expired = expired;
+  STATE.done = [true, true, true, false, false, false, false];
+  if (expired) {
+    STATE.stage = -1;  // sentinel — RENDER.expired() renders standalone screen
+    STATE.done = [true, true, true, true, true, true, true];  // all-done for strip visuals
+  } else if (fullyComplete) {
+    STATE.stage = 6;  // Stage 7 ceremony (celebration)
+    STATE.done = [true, true, true, true, true, true, true];
+  } else if (operationallyComplete) {
+    STATE.stage = 6;  // Stage 7 ceremony (close-pending)
+    STATE.done = [true, true, true, true, true, true, false];
+  } else if (anyStamped) {
+    STATE.stage = 5;  // Stage 6 watch
+    STATE.done = [true, true, true, true, true, false, false];
+  } else {
+    STATE.stage = 3;  // Stage 4 token re-download
+  }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function slugify(s) {
+  return (s || '').toLowerCase().trim().replace(/[^a-z0-9\s\-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+}
+function prefixify(s) {
+  const cleaned = (s || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+  return cleaned.slice(0, 4) || 'PRJ';
+}
+function vendorMd(v) { const o = VF.vendorOptions.find(x => x.value === v); return o ? o.mdFile : 'CLAUDE.md'; }
+
+// ============================================================
+// Strip + meta
+// ============================================================
+function renderStrip() {
+  document.getElementById('stage-strip').innerHTML = STAGES.map((s, i) => {
+    const cls = STATE.done[i] ? 'done' : (i === STATE.stage ? 'active' : '');
+    return `<div class="stage-pip ${cls}"><div class="num">// ${String(i+1).padStart(2,'0')} ${escapeHtml(s.group)}</div><div class="lab">${escapeHtml(s.label)}</div></div>`;
+  }).join('');
+  // VF-382: expired -> all-done strip + full rail; meta-stage shows "archived".
+  let pct;
+  if (STATE.expired) {
+    pct = 100;
+  } else {
+    pct = ((STATE.stage + 1) / STAGES.length) * 100;
+  }
+  document.getElementById('stage-rail-fill').style.width = pct + '%';
+  document.getElementById('meta-project').textContent = STATE.project.name || '—';
+  document.getElementById('meta-agent').textContent = STATE.agent.name || '—';
+  document.getElementById('meta-stage').textContent = STATE.expired ? 'archived' : ((STATE.stage + 1) + ' / ' + STAGES.length);
+}
+
+function renderAll() { renderStrip(); renderStage(); }
+
+// ============================================================
+// Stage rendering
+// ============================================================
+const RENDER = {
+  project: () => {
+    const p = STATE.project;
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 1 of 7 · CREATE PROJECT</div>
+      <h2 class="stage-title">Tell us a bit about your project</h2>
+      <p class="stage-sub">Just a name and a couple of details to get going. The slug fills in from the name; the prefix becomes your ticket ID (e.g. <code>VF-123</code>) — both are editable. Nothing hits the board yet; we ask you to confirm at Stage 3 before anything is created.</p>
+      <div class="field"><label class="field-label">Display name <span class="req">*</span></label>
+        <input class="input" id="proj-name" value="${escapeHtml(p.name)}" placeholder="e.g. Acme Tracker" autofocus>
+        <div class="field-help">The friendly name shown across the board.</div>
+      </div>
+      <div class="field"><label class="field-label">Description</label>
+        <textarea class="textarea" id="proj-desc" placeholder="Why this project exists in one short paragraph">${escapeHtml(p.desc)}</textarea>
+        <div class="field-help">Optional. Helps future-you remember why this project exists.</div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label class="field-label">URL slug <span class="req">*</span></label>
+          <input class="input mono" id="proj-slug" value="${escapeHtml(p.slug)}" placeholder="auto-suggested from name">
+          <div class="field-help">Lowercase, digits, hyphens. Used in URLs.</div>
+          <div class="field-warn" id="proj-slug-warn"></div>
+        </div>
+        <div class="field"><label class="field-label">Ticket prefix <span class="req">*</span></label>
+          <input class="input mono" id="proj-prefix" value="${escapeHtml(p.prefix)}" placeholder="e.g. VF" maxlength="5" style="text-transform:uppercase">
+          <div class="field-help">2–5 letters. Becomes <code>{PREFIX}-{N}</code>.</div>
+          <div class="field-warn" id="proj-prefix-warn"></div>
+        </div>
+      </div>
+      <div class="stage-cta">
+        <button class="btn" id="cta-project" disabled>Next →</button>
+        <span class="stage-hint">Settings captured locally. Nothing on board yet.</span>
+      </div>
+    </div>`;
+  },
+
+  agent: () => {
+    const p = STATE.project; const a = STATE.agent;
+    const opts = VF.vendorOptions.map(v => `<option value="${v.value}" ${a.vendor === v.value ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('');
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 2 of 7 · SET UP AGENT</div>
+      <h2 class="stage-title">Who'll be working with you on ${escapeHtml(p.name)}?</h2>
+      <p class="stage-sub">Pick a friendly name for your agent and which tool you're using. The vendor choice tells us what to call the rules file your agent reads at every session start (Claude reads <code>CLAUDE.md</code>; everyone else reads <code>AGENTS.md</code>) — small thing, but the agent looks for the right filename. The agent's access token gets issued at Stage 3 once you confirm.</p>
+      <div class="field"><label class="field-label">Agent name <span class="req">*</span></label>
+        <input class="input" id="agent-name" value="${escapeHtml(a.name || 'Claude')}" autofocus>
+        <div class="field-help">Display name on tickets, notes, audit events.</div>
+      </div>
+      <div class="field"><label class="field-label">Vendor</label>
+        <select class="select" id="agent-vendor">${opts}</select>
+      </div>
+      <div class="field"><label class="field-label">Description</label>
+        <textarea class="textarea" id="agent-desc" placeholder="Optional — auto-generated if blank.">${escapeHtml(a.desc)}</textarea>
+        <div class="field-help">Auto-generated from creator + project name. Edit if you like.</div>
+      </div>
+      <div class="stage-cta">
+        <button class="btn secondary stage-back" id="cta-back">← Back</button>
+        <button class="btn" id="cta-agent" disabled>Next →</button>
+        <span class="stage-hint">Settings captured. Token issues at commit.</span>
+      </div>
+    </div>`;
+  },
+
+  commit: () => {
+    const p = STATE.project; const a = STATE.agent;
+    const trim = (s, n) => { s = s || ''; return s.length > n ? s.slice(0, n) + '…' : s; };
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 3 of 7 · REVIEW &amp; CREATE  ·  last clean exit</div>
+      <h2 class="stage-title">Review your setup before we create it</h2>
+      <p class="stage-sub">Nothing has hit the board yet. If everything looks right, hit <strong>Acknowledge &amp; create</strong> and we'll make your project + agent. If something's off, go Back to fix it.</p>
+      <div class="summary-card"><div class="summary-grid">
+        <div class="summary-section">
+          <h4><span class="ic">📁</span> Project</h4>
+          <div class="summary-row"><span class="k">name</span><span class="v">${escapeHtml(p.name)}</span></div>
+          <div class="summary-row"><span class="k">slug</span><span class="v">${escapeHtml(p.slug)}</span></div>
+          <div class="summary-row"><span class="k">prefix</span><span class="v">${escapeHtml(p.prefix)}</span></div>
+          <div class="summary-row"><span class="k">about</span><span class="v">${escapeHtml(trim(p.desc, 80)) || '<em style="color:var(--color-text-subtle)">none</em>'}</span></div>
+        </div>
+        <div class="summary-section">
+          <h4><span class="ic">🤖</span> Agent</h4>
+          <div class="summary-row"><span class="k">name</span><span class="v">${escapeHtml(a.name)}</span></div>
+          <div class="summary-row"><span class="k">vendor</span><span class="v">${escapeHtml(a.vendor)}</span></div>
+          <div class="summary-row"><span class="k">writes</span><span class="v"><code>${vendorMd(a.vendor)}</code></span></div>
+          <div class="summary-row"><span class="k">role</span><span class="v">${escapeHtml(trim(a.desc, 80)) || '<em style="color:var(--color-text-subtle)">auto</em>'}</span></div>
+        </div>
+      </div></div>
+      <div class="stage-cta">
+        <button class="btn secondary stage-back" id="cta-back">← Back</button>
+        <button class="btn" id="cta-commit">Acknowledge &amp; create →</button>
+      </div>
+    </div>`;
+  },
+
+  token: () => {
+    const a = STATE.agent; const p = STATE.project; const t = STATE.token;
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 4 of 7 · AGENT ONBOARDING · TOKEN</div>
+      <h2 class="stage-title">Grab your agent's access</h2>
+      <p class="stage-sub">Two flavours below — pick the one that fits how you want to set things up. The recommended <code>.agent-config</code> drops straight into your project root and your agent reads it on first run. (Each click re-issues a fresh token; the previous one stops working — so click only when you're ready to save.)</p>
+      <div class="token-card">
+        <div class="token-header">
+          <span class="token-icon">🔑</span>
+          <div class="token-meta">
+            <div class="token-meta-name">Agent token</div>
+            <div class="token-meta-sub">For agent <strong>${escapeHtml(a.name)}</strong> on project <strong>${escapeHtml(p.slug)}</strong> · single-use download</div>
+          </div>
+        </div>
+        <div class="token-body">
+          <div class="token-line"><span class="k">VIBEFORGE_TOKEN</span><code id="token-display">${escapeHtml(t.display || '—')}</code></div>
+          <div class="token-line"><span class="k">VIBEFORGE_API</span><code>${escapeHtml(VF.boardApiUrl)}</code></div>
+        </div>
+        <div class="token-actions" style="display:flex;flex-direction:column;gap:var(--space-2);">
+          <button class="token-download-btn" id="cta-agent-config-download" type="button">
+            <span class="dl-icon">⚙</span>
+            <span class="dl-label">Download <code>.agent-config</code></span>
+            <span class="dl-meta" id="agent-config-dl-meta">env file · drop in project root</span>
+          </button>
+          <button class="token-download-btn" id="cta-token-download" type="button" style="background:transparent;color:var(--color-text);border-color:var(--color-border-strong);">
+            <span class="dl-icon">⬇</span>
+            <span class="dl-label">Download token only (raw <code>.txt</code>)</span>
+            <span class="dl-meta" id="token-dl-meta">if you want to compose the env file yourself</span>
+          </button>
+        </div>
+        <div class="token-help">
+          <p>Both buttons re-issue a fresh single-use token, so the previous download stops working — pick one and save it once.</p>
+          <p><strong><code>.agent-config</code></strong> lands ready to use with both <code>VIBEFORGE_TOKEN=…</code> and <code>VIBEFORGE_API=…</code> already set. Your agent reads it on first run, no extra steps.</p>
+          <p><strong>Pre-stage your <code>.gitignore</code></strong> if you'd like (the agent will add it during onboard, but you can beat it to the punch):</p>
+          <div class="copy-block" id="cb-gitignore" style="margin: var(--space-2) 0; max-height: 110px; padding: var(--space-2);">
+            <span class="copy-affordance"><button class="btn copy" id="copy-gitignore" type="button">Copy</button></span><span id="gitignore-text"># VibeForge+ agent config + scratch
+.agent-config
+.scratch/
+</span>
+          </div>
+        </div>
+      </div>
+      <div class="stage-status" id="stage-status">
+        <div class="stage-status-icon">⏳</div>
+        <div class="stage-status-body">
+          <div class="stage-status-title">Waiting on the download</div>
+          <div class="stage-status-desc">Click one of the two buttons above. Save the file in your project root. When it's there, hit the button below.</div>
+        </div>
+      </div>
+      <div class="stage-cta">
+        <button class="btn" id="cta-token">I've saved the file · continue →</button>
+      </div>
+    </div>`;
+  },
+
+  bootstrap: () => {
+    const a = STATE.agent; const p = STATE.project;
+    const cli = (VF.vendorOptions.find(v => v.value === a.vendor) || VF.vendorOptions[0]).cli;
+    const md = vendorMd(a.vendor);
+    const bootstrap = `You are starting a fresh VibeForge+ project session as the agent "${a.name}".
+
+PROJECT:  ${p.name}  (slug: ${p.slug})
+PREFIX:   ${p.prefix}
+
+CONNECT:
+1. Read .agent-config from the project root for VIBEFORGE_TOKEN + VIBEFORGE_API. Do NOT print or echo the token.
+2. GET \${VIBEFORGE_API}/me — confirm your identity is "${a.name}".
+3. GET \${VIBEFORGE_API}/agentnotes/${p.slug} — fetch the full contract.
+4. GET \${VIBEFORGE_API}/onboard/framing — fetch the framework framing TEXT (full long-form, ~1450 words) AND the our_block_text payload. SAVE our_block_text verbatim; you'll need it for substep 6 (agent_md_hash).
+
+ONBOARD CEREMONY — walk the 7 substeps IN ORDER. The /agentnotes contract is the source of truth. Every substep description matters. Do not skip the rituals.
+
+SUBSTEP 1 — framing_acknowledged. This one matters most; the contract enforces three fields. Do this exactly:
+  (a) PASTE the framing intro VERBATIM into chat — the section from "What VibeForge+ is" through "Start formal; your tone takes over as the agent learns your voice." Show ${VF.humanName || 'the human'} the actual words from the framing TEXT you fetched at step 4. DO NOT summarise instead of pasting. DO NOT compress. Verbatim means verbatim — the contract field surfaced_verbatim=true is meant to assert this literally happened in chat.
+  (b) THEN paraphrase the framing in your OWN words (≥150 chars) emphasising the gravitas — what does it MEAN for how you and ${VF.humanName || 'the human'} will work on this project. Capture this for the surfaced_summary field.
+  (c) THEN ask ${VF.humanName || 'the human'} explicitly, by name: "${VF.humanName || 'the human'}, do you accept this framing as how we'll work? Reply in your own words."
+  (d) WAIT for their typed reply. Capture their reply VERBATIM into human_ack (≥8 chars). DO NOT fabricate a reply, DO NOT put words in their mouth, DO NOT skip the wait.
+  (e) POST /onboard-state/ack with step=framing_acknowledged + surfaced_verbatim=true + surfaced_summary + human_ack.
+
+SUBSTEP 2 — tooling_hash. Materialise the scaffold (vf_render.py, vf_toc.py, template.html, README.md) at 0-MD/.tools/. The scaffold also creates .scratch/ at the PROJECT ROOT (gitignored). Silent — agent works.
+
+FILE-PLACEMENT DISCIPLINE (read this before saving ANY file):
+  - 0-MD/                              — documentation only (markdown + rendered HTML + TOC + .tools/ scaffold).
+  - .scratch/        (project root, gitignored) — your cache + snapshots: API response captures (.vibeforge-agentnotes.json, .vibeforge-onboard-framing.json, .vibeforge-our-block-text.md, etc), intermediate JSONs, helper scripts you wrote for one session, working files. EVERY .vibeforge-* file you create during onboard goes here. Use the .vibeforge-* prefix as the cache-namespace convention.
+  - Project root                       — source code, README.md, AGENTS.md/CLAUDE.md, .gitignore, .agent-config — that's it. Do NOT dump .vibeforge-* snapshots at root; a leading dot doesn't hide them from git, .scratch/ does. The contract spells this out at onboard.py Folder Discipline section; agents that drop .vibeforge-*.json at root are reading that section past the comma.
+  - Add .agent-config + .scratch/ to .gitignore as one of your first acts (before substep 6).
+
+SUBSTEP 3 — doc_complexity. Ask ${VF.humanName || 'the human'} minimal/medium/heavy. Wait for reply, capture, post.
+
+SUBSTEP 4 — compaction_practice. Surface the handover/compact/absorb question verbatim from the framing TEXT (substep 4 description). Wait for reply (≥4 chars; "skip" is fine). Capture verbatim into compaction_practice_ack.
+
+SUBSTEP 5 — plan_hash. Discuss the plan with ${VF.humanName || 'the human'} in chat, then write 0-MD/0-Documentation/internal/initial_plan.md. Hash it; post.
+
+SUBSTEP 6 — agent_md_hash. Build the discipline manifest (${md} for ${a.vendor === 'claude' ? 'Claude' : 'this vendor'}); register hash via /onboard-state/complete (NOT /ack).
+
+SUBSTEP 7 — first_close_complete. Server-stamped when ${VF.humanName || 'the human'} closes the auto-created "Onboard absorption workspace" ticket on the board.
+
+This wizard polls /onboard-state every 3s and will mark each substep as you stamp it.
+
+Honour the back-and-forth on substeps 1, 3, 4, 5. Don't fabricate human acks. ASK + WAIT for replies.`;
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 5 of 7 · AGENT ONBOARDING · BOOTSTRAP PROMPT</div>
+      <h2 class="stage-title">Hand the bootstrap prompt to your agent</h2>
+      <p class="stage-sub">Open <strong>${escapeHtml(cli)}</strong> in your project root. Copy the prompt below and paste it into your agent's chat. Your agent will read it, fetch the contract, and start the 7-step ceremony — the next screen watches it happen.</p>
+      <div class="field"><label class="field-label">Bootstrap prompt</label>
+        <div class="copy-block" id="cb-bootstrap"><span class="copy-affordance"><button class="btn copy" id="copy-bootstrap">Copy</button></span><span id="bootstrap-text">${escapeHtml(bootstrap)}</span></div>
+      </div>
+      <div class="stage-status" id="stage-status">
+        <div class="stage-status-icon">⏳</div>
+        <div class="stage-status-body">
+          <div class="stage-status-title">Waiting for your agent to connect</div>
+          <div class="stage-status-desc">Copy → paste into your agent chat. We auto-advance to the watch screen the moment your agent stamps the first substep. Or click <strong>Continue → Watch onboarding</strong> to jump ahead manually.</div>
+        </div>
+      </div>
+      <div class="stage-cta">
+        <button class="btn secondary stage-back" id="cta-back">← Back</button>
+        <button class="btn" id="cta-bootstrap">Continue → Watch onboarding</button>
+      </div>
+    </div>`;
+  },
+
+  watch: () => {
+    const p = STATE.project;
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 6 of 7 · AGENT ONBOARDING · IN PROGRESS</div>
+      <h2 class="stage-title">Your agent is onboarding</h2>
+      <p class="stage-sub">6 substeps your agent walks through — some silent, a couple need a quick reply from you in your agent's CLI. We poll <code>/onboard-state</code> every 3&nbsp;s and stamp each as it lands. When step 6 finishes, you'll get a button to head to the first close ceremony.</p>
+      <div class="watch-substeps" id="watch-substeps"></div>
+      <div class="watch-poll-status">
+        <span class="poll-dot"></span>
+        <span class="poll-text">Polling <code>/api/v2/projects/${escapeHtml(p.slug)}/onboard-state</code> · last update <span id="poll-elapsed">just now</span></span>
+      </div>
+      <div class="files-card" id="files-card"></div>
+      <div id="watch-continue-host"></div>
+    </div>`;
+  },
+
+  // VF-391: dedicated final stage — close ceremony. Substep 7 (first_close_complete)
+  // surfaces here as a focus screen. Human-driven action; auto-stamps celebration
+  // when the absorption ticket transitions to done on the board.
+  ceremony: () => {
+    const p = STATE.project;
+    return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// STAGE 7 of 7 · CLOSE CEREMONY · first ticket</div>
+      <h2 class="stage-title">Your turn — close the first ticket</h2>
+      <p class="stage-sub">Your agent's onboarding is done. Now the close-ceremony rhythm: the board auto-created an <strong>Onboard absorption workspace</strong> ticket. Open the project board, write a short closure note, and move it to <code>done</code>. We poll for the stamp and celebrate the moment it lands.</p>
+      <div id="ceremony-host"></div>
+      <div class="watch-poll-status">
+        <span class="poll-dot"></span>
+        <span class="poll-text">Watching <code>/api/v2/projects/${escapeHtml(p.slug)}/onboard-state</code> for <code>first_close_complete</code> · last update <span id="poll-elapsed-ceremony">just now</span></span>
+      </div>
+      <div class="stage-cta" style="margin-top: var(--space-3);">
+        <button class="btn secondary stage-back" id="cta-back">← Back to watch</button>
+      </div>
+    </div>`;
+  },
+};
+
+function renderStage() {
+  // VF-382: expired sentinel — render standalone "wizard expired" screen.
+  if (STATE.stage === -1 || STATE.expired) {
+    document.getElementById('wizard-pane').innerHTML = renderExpired();
+    return;
+  }
+  const stage = STAGES[STATE.stage];
+  document.getElementById('wizard-pane').innerHTML = RENDER[stage.key]();
+  const wireFn = ({
+    project: wireProject, agent: wireAgent, commit: wireCommit,
+    token: wireToken, bootstrap: wireBootstrap, watch: wireWatch,
+    ceremony: wireCeremony,
+  })[stage.key];
+  if (wireFn) wireFn();
+}
+
+function renderExpired() {
+  const p = STATE.project || {};
+  const slug = p.slug || '';
+  return `
+    <div class="stage-body active">
+      <div class="stage-kicker">// WIZARD EXPIRED · onboard archived</div>
+      <h2 class="stage-title">This onboard wizard has retired</h2>
+      <p class="stage-sub">The post-completion window for this project's onboard wizard has passed (operator-tunable in admin). The project is fully active — head to its board to keep going.</p>
+      <div class="wz-status done" style="background:var(--color-success-bg);border:1px solid var(--color-success-border);border-radius:var(--radius-md, 8px);padding:var(--space-4) var(--space-5);margin-top:var(--space-4);display:flex;gap:var(--space-3);align-items:flex-start;">
+        <div style="font-size:1.4rem;line-height:1;">✓</div>
+        <div>
+          <div style="font-weight:700;font-size:0.95rem;color:var(--color-text-strong);">${escapeHtml(p.name || slug)} is onboarded</div>
+          <div style="font-size:0.82rem;color:var(--color-text-muted);margin-top:4px;line-height:1.5;">All 7 substeps stamped. The wizard's resume affordance has retired so the project surface stays clean.</div>
+        </div>
+      </div>
+      <div class="stage-cta" style="margin-top:var(--space-5);">
+        <a class="btn" href="/ui/projects/${escapeHtml(slug)}/board">Go to project board →</a>
+        <a class="btn ghost" href="/ui/">Mission Control</a>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// Stage wiring
+// ============================================================
+function wireProject() {
+  const name = document.getElementById('proj-name');
+  const desc = document.getElementById('proj-desc');
+  const slug = document.getElementById('proj-slug');
+  const prefix = document.getElementById('proj-prefix');
+  const cta = document.getElementById('cta-project');
+  function validate() {
+    let ok = true;
+    document.getElementById('proj-slug-warn').classList.remove('show');
+    document.getElementById('proj-prefix-warn').classList.remove('show');
+    if (!name.value.trim()) ok = false;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(slug.value)) {
+      document.getElementById('proj-slug-warn').textContent = 'Lowercase, digits, hyphens only. Must start with letter/digit.';
+      document.getElementById('proj-slug-warn').classList.add('show');
+      ok = false;
+    }
+    if (!/^[A-Z]{2,5}$/.test(prefix.value)) {
+      document.getElementById('proj-prefix-warn').textContent = '2–5 uppercase letters.';
+      document.getElementById('proj-prefix-warn').classList.add('show');
+      ok = false;
+    }
+    cta.disabled = !ok;
+    return ok;
+  }
+  name.addEventListener('input', () => {
+    STATE.project.name = name.value;
+    if (!STATE.project._slugManual) { slug.value = slugify(name.value); STATE.project.slug = slug.value; }
+    if (!STATE.project._prefixManual) { prefix.value = prefixify(name.value); STATE.project.prefix = prefix.value; }
+    document.getElementById('meta-project').textContent = name.value || '—';
+    validate();
+  });
+  desc.addEventListener('input', () => STATE.project.desc = desc.value);
+  slug.addEventListener('input', () => { STATE.project.slug = slug.value.trim(); STATE.project._slugManual = true; validate(); });
+  prefix.addEventListener('input', () => {
+    prefix.value = prefix.value.toUpperCase();
+    STATE.project.prefix = prefix.value; STATE.project._prefixManual = true; validate();
+  });
+  cta.addEventListener('click', () => {
+    if (!validate()) return;
+    STATE.done[0] = true; STATE.stage = 1; renderAll();
+  });
+  validate();
+}
+
+function wireAgent() {
+  const name = document.getElementById('agent-name');
+  const vendor = document.getElementById('agent-vendor');
+  const desc = document.getElementById('agent-desc');
+  const cta = document.getElementById('cta-agent');
+  // Default agent name to "Claude" if blank
+  if (!STATE.agent.name) { STATE.agent.name = 'Claude'; name.value = 'Claude'; }
+  function validate() {
+    cta.disabled = !name.value.trim();
+    return !cta.disabled;
+  }
+  name.addEventListener('input', () => {
+    STATE.agent.name = name.value;
+    document.getElementById('meta-agent').textContent = name.value || '—';
+    validate();
+  });
+  vendor.addEventListener('change', () => { STATE.agent.vendor = vendor.value; STATE.agent.agent_md = vendorMd(vendor.value); });
+  desc.addEventListener('input', () => STATE.agent.desc = desc.value);
+  document.getElementById('cta-back').addEventListener('click', () => { STATE.stage = 0; renderAll(); });
+  cta.addEventListener('click', () => {
+    if (!validate()) return;
+    STATE.done[1] = true; STATE.stage = 2; renderAll();
+  });
+  document.getElementById('meta-agent').textContent = name.value || '—';
+  validate();
+}
+
+function wireCommit() {
+  document.getElementById('cta-back').addEventListener('click', () => { STATE.stage = 1; renderAll(); });
+  document.getElementById('cta-commit').addEventListener('click', openFramingGate);
+}
+
+function openFramingGate() {
+  document.getElementById('fg-proj').textContent = STATE.project.name;
+  document.getElementById('fg-agent').textContent = STATE.agent.name;
+  const overlay = document.getElementById('modal-framing');
+  overlay.classList.add('show');
+  const counter = document.getElementById('fg-counter');
+  const confirmBtn = document.getElementById('fg-confirm');
+  confirmBtn.disabled = true;
+  counter.classList.remove('ready');
+  let secs = 6;
+  counter.textContent = `Please read · accept enables in ${secs}s`;
+  if (overlay._tick) clearInterval(overlay._tick);
+  overlay._tick = setInterval(() => {
+    secs--;
+    if (secs <= 0) {
+      clearInterval(overlay._tick); overlay._tick = null;
+      counter.textContent = '✓ Ready when you are.'; counter.classList.add('ready');
+      confirmBtn.disabled = false;
+    } else {
+      counter.textContent = `Please read · accept enables in ${secs}s`;
+    }
+  }, 1000);
+}
+function closeFramingGate() {
+  const overlay = document.getElementById('modal-framing');
+  overlay.classList.remove('show');
+  if (overlay._tick) { clearInterval(overlay._tick); overlay._tick = null; }
+}
+
+// Body-level wiring (one-time)
+document.getElementById('fg-cancel').addEventListener('click', closeFramingGate);
+document.getElementById('fg-expand-btn').addEventListener('click', e => {
+  const btn = e.currentTarget;
+  const expanded = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', !expanded);
+  document.getElementById('fg-framing-scroll').classList.toggle('collapsed', expanded);
+  btn.querySelector('.fg-expand-label').textContent = expanded ? 'Show full framing text' : 'Hide full framing text';
+});
+document.getElementById('fg-confirm').addEventListener('click', commitProjectAndAgent);
+
+async function commitProjectAndAgent() {
+  const btn = document.getElementById('fg-confirm');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const res = await fetch('/ui/api/onboard/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        project_name: STATE.project.name,
+        project_slug: STATE.project.slug,
+        project_prefix: STATE.project.prefix,
+        project_description: STATE.project.desc || '',
+        agent_name: STATE.agent.name,
+        agent_vendor: STATE.agent.vendor,
+        agent_description: STATE.agent.desc || '',
+      }),
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { const j = await res.json(); detail = j.detail || j.message || JSON.stringify(j); } catch(e){}
+      throw new Error(detail);
+    }
+    const data = await res.json();
+    STATE.project.slug = data.project.slug;
+    STATE.project.name = data.project.name;
+    STATE.project.prefix = data.project.prefix;
+    STATE.agent.id = data.agent.id;
+    STATE.agent.name = data.agent.name;
+    STATE.token.display = data.token_display;
+    STATE.token.downloadUrl = data.download_url;
+    STATE.token.agentId = data.agent.id;
+    STATE.done[2] = true; STATE.stage = 3;
+    closeFramingGate();
+    toast('Project + agent created.', 'ok');
+    renderAll();
+    history.replaceState({}, '', `/ui/onboard/${data.project.slug}`);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'I understand · create my project →';
+    toast('Create failed: ' + (e.message || e), 'danger');
+  }
+}
+
+async function reissueAndDownload(format) {
+  // format: "token" (raw .txt) | "agent-config" (env file)
+  if (!STATE.agent || !STATE.agent.id) { toast('No agent context', 'danger'); return; }
+  const btnId = format === 'agent-config' ? 'cta-agent-config-download' : 'cta-token-download';
+  const metaId = format === 'agent-config' ? 'agent-config-dl-meta' : 'token-dl-meta';
+  const btn = document.getElementById(btnId);
+  const meta = document.getElementById(metaId);
+  const origMeta = meta ? meta.textContent : '';
+  if (btn) btn.disabled = true;
+  if (meta) meta.textContent = 'issuing…';
+  try {
+    const res = await fetch('/ui/api/onboard/reissue-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ agent_id: STATE.agent.id }),
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { const j = await res.json(); detail = j.detail || j.message || JSON.stringify(j); } catch(e){}
+      throw new Error(detail);
+    }
+    const data = await res.json();
+    STATE.token.display = data.token_display;
+    STATE.token.downloadUrl = data.download_url;
+    const td = document.getElementById('token-display');
+    if (td) td.textContent = data.token_display;
+    // Append format query param to the freshly-issued single-use URL.
+    const sep = data.download_url.includes('?') ? '&' : '?';
+    const url = `${data.download_url}${sep}format=${encodeURIComponent(format)}`;
+    // Trigger the download via a transient anchor (no `download` attr — server's
+    // Content-Disposition supplies the filename; Edge mangles client-side hints).
+    const a = document.createElement('a');
+    a.href = url;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 0);
+  } catch (e) {
+    toast('Token issue failed: ' + (e.message || e), 'danger');
+  } finally {
+    if (meta) meta.textContent = origMeta;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function wireToken() {
+  document.getElementById('cta-agent-config-download').addEventListener('click', () => reissueAndDownload('agent-config'));
+  document.getElementById('cta-token-download').addEventListener('click', () => reissueAndDownload('token'));
+  document.getElementById('cta-token').addEventListener('click', () => {
+    STATE.done[3] = true; STATE.stage = 4; renderAll();
+  });
+  // VF-390: copyable .gitignore line so user can pre-stage hygiene.
+  const giBtn = document.getElementById('copy-gitignore');
+  if (giBtn) giBtn.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(document.getElementById('gitignore-text').textContent);
+      btn.textContent = 'Copied'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1600);
+    } catch (err) { toast('Copy failed: ' + err, 'danger'); }
+  });
+}
+
+function wireBootstrap() {
+  document.getElementById('cta-back').addEventListener('click', () => { stopBootstrapPoll(); STATE.stage = 3; renderAll(); });
+  document.getElementById('cta-bootstrap').addEventListener('click', () => {
+    stopBootstrapPoll();
+    STATE.done[4] = true; STATE.stage = 5; renderAll();
+  });
+  document.getElementById('copy-bootstrap').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(document.getElementById('bootstrap-text').textContent);
+      btn.textContent = 'Copied'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1600);
+    } catch (err) { toast('Copy failed: ' + err, 'danger'); }
+  });
+  // Auto-advance — start polling /onboard-state. The moment ANY substep stamps,
+  // the agent has clearly connected and is mid-ceremony — jump to Stage 6.
+  startBootstrapPoll();
+}
+
+function startBootstrapPoll() {
+  stopBootstrapPoll();
+  if (!STATE.project || !STATE.project.slug) return;
+  // Snapshot the agent's call count at poll start so we only fire on FRESH
+  // contact (resume scenarios where api_call_count was already > 0 before
+  // the wizard re-entered Stage 5 don't false-positive).
+  STATE._bootstrapBaselineCalls = -1;
+  STATE.bootstrapTimer = setInterval(async () => {
+    try {
+      // Two parallel signals: (1) agent contact (early — fires on first /me hit),
+      // (2) any substep stamped (late — definitely connected and mid-ceremony).
+      const [agentRes, stateRes] = await Promise.all([
+        STATE.agent && STATE.agent.id
+          ? fetch(`/ui/api/onboard/agent-status?agent_id=${encodeURIComponent(STATE.agent.id)}`, { credentials: 'same-origin' })
+          : Promise.resolve(null),
+        fetch(`${VF.boardApiUrl}/projects/${STATE.project.slug}/onboard-state`, { credentials: 'same-origin' }),
+      ]);
+
+      let agentContacted = false;
+      if (agentRes && agentRes.ok) {
+        const ag = await agentRes.json();
+        const calls = Number(ag.api_call_count || 0);
+        if (STATE._bootstrapBaselineCalls < 0) {
+          STATE._bootstrapBaselineCalls = calls;
+        } else if (calls > STATE._bootstrapBaselineCalls) {
+          agentContacted = true;
+        }
+      }
+
+      let anyStamped = false;
+      let os = {};
+      if (stateRes && stateRes.ok) {
+        const data = await stateRes.json();
+        os = data.onboard_state || {};
+        anyStamped = !!(os.framing_acknowledged || os.tooling_hash || os.doc_complexity ||
+                        os.compaction_practice || os.plan_hash || os.agent_md_hash ||
+                        os.first_close_complete || os.completed_at);
+      }
+
+      if (agentContacted || anyStamped) {
+        stopBootstrapPoll();
+        STATE.onboardState = os;
+        STATE.done[4] = true; STATE.stage = 5;
+        toast(anyStamped ? 'Agent stamping substeps — watching onboarding.' : 'Agent connected — watching onboarding.', 'ok');
+        renderAll();
+      }
+    } catch (e) { /* network blip — try next tick */ }
+  }, 3000);
+}
+function stopBootstrapPoll() {
+  if (STATE.bootstrapTimer) { clearInterval(STATE.bootstrapTimer); STATE.bootstrapTimer = null; }
+}
+
+// ============================================================
+// Stage 6 — Watch
+// ============================================================
+function wireWatch() {
+  renderSubsteps();
+  pollOnce();
+  if (STATE.watchTimer) clearInterval(STATE.watchTimer);
+  STATE.watchTimer = setInterval(pollOnce, 3000);
+}
+
+function renderSubsteps() {
+  const state = STATE.onboardState || {};
+  const root = document.getElementById('watch-substeps');
+  if (!root) return;
+  let activeIdx = WATCH_SUBSTEPS.findIndex(s => !state[s.key]);
+  if (activeIdx < 0) activeIdx = WATCH_SUBSTEPS.length;
+  root.innerHTML = WATCH_SUBSTEPS.map((s, i) => {
+    const stamped = !!state[s.key];
+    const isActive = i === activeIdx;
+    const cls = stamped ? 'done' : (isActive ? 'active' : '');
+    const status = stamped ? 'done' : (isActive ? 'in progress' : 'pending');
+    const echo = stamped ? renderEcho(s, state) : '';
+    const aff = (isActive && s.chat) ? `
+      <div class="ws-affordance">
+        <div class="ws-aff-icon">💬</div>
+        <div class="ws-aff-body"><div class="ws-aff-text"><strong>Action in your CLI:</strong> ${escapeHtml(s.cliHint)}</div></div>
+      </div>` : '';
+    return `<div class="ws-row ${cls}" data-key="${s.key}">
+      <div class="ws-num">${stamped ? '✓' : (i+1)}</div>
+      <div>
+        <div class="ws-name">${escapeHtml(s.name)}</div>
+        <div class="ws-desc">${escapeHtml(s.desc)}</div>
+        ${aff}
+        ${echo}
+      </div>
+      <div class="ws-status">${escapeHtml(status)}</div>
+    </div>`;
+  }).join('');
+  // Auto-scroll active substep
+  const activeEl = root.querySelector('.ws-row.active');
+  if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  renderFilesPanel();
+  renderClosePending();
+}
+
+function renderEcho(s, state) {
+  let key = s.key, val = '';
+  if (s.key === 'doc_complexity') val = state.doc_complexity;
+  else if (s.key === 'compaction_practice') val = state.compaction_practice_ack || 'acknowledged';
+  else if (s.key === 'framing_acknowledged') { key = 'human_ack'; val = state.human_ack || 'acknowledged'; }
+  else if (s.key === 'tooling_hash') val = 'sha256:…' + String(state.tooling_hash).slice(-8);
+  else if (s.key === 'plan_hash')    val = 'sha256:…' + String(state.plan_hash).slice(-8);
+  else if (s.key === 'agent_md_hash') val = 'sha256:…' + String(state.agent_md_hash).slice(-8);
+  else if (s.key === 'first_close_complete') val = 'ticket closed';
+  return `<div class="ws-echo"><span class="ws-echo-key">${escapeHtml(key)}</span><span class="ws-echo-val">${escapeHtml(val)}</span></div>`;
+}
+
+function renderFilesPanel() {
+  const state = STATE.onboardState || {};
+  const root = document.getElementById('files-card');
+  if (!root) return;
+  const items = [];
+  if (state.tooling_hash && Array.isArray(state.defaults_applied)) {
+    state.defaults_applied.forEach(p => items.push({ path: p, hash: 'sha256:…' + String(state.tooling_hash).slice(-8) }));
+  }
+  if (state.plan_hash) items.push({ path: '0-MD/0-Documentation/internal/initial_plan.md', hash: 'sha256:…' + String(state.plan_hash).slice(-8) });
+  if (state.agent_md_hash) items.push({ path: vendorMd(STATE.agent.vendor), hash: 'sha256:…' + String(state.agent_md_hash).slice(-8) });
+  root.innerHTML = `<h4>📁 Files written by your agent <span class="ct">${items.length}</span></h4>` +
+    (items.length
+      ? items.map(i => `<div class="files-row"><span class="path">${escapeHtml(i.path)}</span><span class="hash">${escapeHtml(i.hash)}</span></div>`).join('')
+      : `<div class="files-empty">No files yet — the agent writes them as substeps complete.</div>`);
+}
+
+// VF-391: replaces inline close-pending banner. When substeps 1-6 are done +
+// completed_at stamped, surfaces a HUMAN-CLICKED "Continue → First close
+// ceremony" button (no auto-advance, per PK refinement) that takes the user
+// to Stage 7. The actual close-ceremony surface (close-pending banner +
+// Open-board popup + force-finish disclosure + celebration) lives in Stage 7.
+function renderClosePending() {
+  const state = STATE.onboardState || {};
+  const host = document.getElementById('watch-continue-host');
+  if (!host) return;
+  const operationallyComplete = !!(state.agent_md_hash && state.completed_at);
+  if (!operationallyComplete) { host.innerHTML = ''; return; }
+  host.innerHTML = `<div class="stage-cta" style="margin-top: var(--space-4); justify-content: flex-end;">
+    <span class="stage-hint">All 6 onboarding substeps done. Time for your first close-ceremony.</span>
+    <button class="btn" id="cta-watch-to-ceremony">Continue → First close ceremony</button>
+  </div>`;
+  document.getElementById('cta-watch-to-ceremony').addEventListener('click', () => {
+    if (STATE.watchTimer) { clearInterval(STATE.watchTimer); STATE.watchTimer = null; }
+    STATE.done[5] = true;
+    STATE.stage = 6;  // ceremony
+    renderAll();
+  });
+}
+
+// ============================================================
+// Stage 7 — Ceremony (close-pending + force-finish + celebration)
+// ============================================================
+function wireCeremony() {
+  document.getElementById('cta-back').addEventListener('click', () => {
+    if (STATE.ceremonyTimer) { clearInterval(STATE.ceremonyTimer); STATE.ceremonyTimer = null; }
+    STATE.stage = 5;  // back to watch
+    renderAll();
+  });
+  renderCeremonyBody();
+  pollCeremonyOnce();
+  if (STATE.ceremonyTimer) clearInterval(STATE.ceremonyTimer);
+  STATE.ceremonyTimer = setInterval(pollCeremonyOnce, 3000);
+}
+
+function renderCeremonyBody() {
+  const state = STATE.onboardState || {};
+  const host = document.getElementById('ceremony-host');
+  if (!host) return;
+  const fullyComplete = !!(state.agent_md_hash && state.completed_at && state.first_close_complete);
+  if (fullyComplete) {
+    host.innerHTML = `<div class="complete-card">
+      <div class="check">✓</div>
+      <h3>Onboarding complete</h3>
+      <p>All 7 substeps stamped. The wizard's job is done — close this tab or head back to <a href="/ui/" style="color:hsl(var(--hue) 68% 70%);">Mission Control</a>.</p>
+    </div>`;
+    if (STATE.ceremonyTimer) { clearInterval(STATE.ceremonyTimer); STATE.ceremonyTimer = null; }
+    STATE.done[6] = true;
+    return;
+  }
+  // Close-pending banner + Open-board affordance + force-finish disclosure
+  host.innerHTML = `<div class="ws-cp-banner">
+    <div class="ws-cp-row">
+      <span class="ws-cp-kicker">// CLOSE-PENDING</span>
+      <span class="ws-cp-headline">Waiting for your first close.</span>
+    </div>
+    <div class="ws-cp-body">The board auto-created an <strong>Onboard absorption workspace</strong> ticket. Open the project board, write a short closure note, and move it to <code>done</code>. The wizard stamps substep 7 on the next poll and lights up the celebration.</div>
+    <div class="ws-cp-ticket-row">
+      <strong>Open:</strong>
+      <a class="ws-cp-ticket-link" id="open-board-btn">Project board →</a>
+      <span style="color:var(--color-text-subtle);font-size:11px;">Or ask your agent: "walk me through closing my first ticket".</span>
+    </div>
+    <details class="ws-cp-skip">
+      <summary class="ws-cp-skip-summary">Need to skip? Force-finish (rationale required)</summary>
+      <div class="ws-cp-skip-form">
+        <div class="ws-cp-skip-warn">Force-finish stamps substep 7 without an actual close. Use only if a close isn't possible right now (board issue, deferred). Rationale ≥30 chars; visible on the project's activity log as <code>onboard_force_finished</code>.</div>
+        <textarea class="ws-cp-skip-rationale" id="ff-rationale" placeholder="Why are you skipping the first close right now? (≥30 chars, honest)"></textarea>
+        <div class="ws-cp-skip-actions">
+          <span class="ws-cp-skip-counter" id="ff-counter">0 / 30 chars</span>
+          <button class="ws-cp-skip-submit" id="ff-submit" disabled>Force-finish onboarding</button>
+        </div>
+      </div>
+    </details>
+  </div>`;
+  document.getElementById('open-board-btn').addEventListener('click', (e) => {
+    e.preventDefault();
+    showInfo('Open the project board',
+      `<p>Head to <code>/ui/projects/${escapeHtml(STATE.project.slug)}/board</code> in this tab or a new one.</p>
+       <p>Find the auto-created <strong>Onboard absorption workspace</strong> ticket, add a short closure note, and move it to <strong>done</strong>. The wizard auto-stamps substep 7 on the next poll.</p>
+       <p style="margin-top:var(--space-3);"><a href="/ui/projects/${escapeHtml(STATE.project.slug)}/board" target="_blank" style="color:hsl(var(--hue) 68% 70%);">Open in new tab →</a></p>`);
+  });
+  const ff = document.getElementById('ff-rationale');
+  const counter = document.getElementById('ff-counter');
+  const submit = document.getElementById('ff-submit');
+  ff.addEventListener('input', () => {
+    const n = ff.value.trim().length;
+    counter.textContent = `${n} / 30 chars`;
+    counter.classList.toggle('ok', n >= 30);
+    submit.disabled = n < 30;
+  });
+  submit.addEventListener('click', forceFinish);
+}
+
+async function pollCeremonyOnce() {
+  if (!STATE.project || !STATE.project.slug) return;
+  try {
+    const res = await fetch(`${VF.boardApiUrl}/projects/${STATE.project.slug}/onboard-state`, {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    STATE.onboardState = data.onboard_state || {};
+    const el = document.getElementById('poll-elapsed-ceremony');
+    if (el) el.textContent = new Date().toLocaleTimeString();
+    renderCeremonyBody();
+  } catch (e) { /* network blip */ }
+}
+
+async function forceFinish() {
+  const rationale = document.getElementById('ff-rationale').value.trim();
+  if (rationale.length < 30) return;
+  const submit = document.getElementById('ff-submit');
+  submit.disabled = true; submit.textContent = 'Submitting…';
+  try {
+    const res = await fetch(`${VF.boardApiUrl}/projects/${STATE.project.slug}/onboard-state/force-finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ rationale }),
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { const j = await res.json(); detail = j.detail || j.message || JSON.stringify(j); } catch(e){}
+      throw new Error(detail);
+    }
+    toast('Force-finish accepted.', 'ok');
+    pollOnce();
+  } catch (e) {
+    submit.disabled = false; submit.textContent = 'Force-finish onboarding';
+    toast(e.message || String(e), 'danger');
+  }
+}
+
+async function pollOnce() {
+  if (!STATE.project || !STATE.project.slug) return;
+  try {
+    const res = await fetch(`${VF.boardApiUrl}/projects/${STATE.project.slug}/onboard-state`, {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    STATE.onboardState = data.onboard_state || {};
+    STATE.pollLastAt = new Date();
+    const el = document.getElementById('poll-elapsed');
+    if (el) el.textContent = STATE.pollLastAt.toLocaleTimeString();
+    renderSubsteps();
+  } catch (e) { /* network blip */ }
+}
+
+// ============================================================
+// Info modal + toast
+// ============================================================
+function showInfo(title, htmlBody) {
+  document.getElementById('info-title').textContent = title;
+  document.getElementById('info-body').innerHTML = htmlBody;
+  document.getElementById('modal-info').classList.add('show');
+}
+document.getElementById('info-close').addEventListener('click', () =>
+  document.getElementById('modal-info').classList.remove('show'));
+
+let _toastTimer = null;
+function toast(msg, kind) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+// Reset — pre-commit clears browser form; resume mode wipes server-side onboard_state
+// (escape hatch for a stuck onboard run; existing endpoint POST /onboard-state/reset).
+const resetBtn = document.getElementById('reset-btn');
+if (resetBtn) resetBtn.addEventListener('click', async () => {
+  if (VF.mode === 'resume') {
+    if (!confirm('Reset onboard state for ' + STATE.project.slug + '?\n\n' +
+                 'This wipes the 7-substep progress on the server (project + agent stay; ' +
+                 'token stays valid). Use this if the onboard is stuck and you want to start ' +
+                 'the substep ceremony fresh from substep 1.')) return;
+    try {
+      const res = await fetch(`${VF.boardApiUrl}/projects/${STATE.project.slug}/onboard-state/reset`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); detail = j.detail || j.message || JSON.stringify(j); } catch(e){}
+        throw new Error(detail);
+      }
+      STATE.onboardState = {};
+      STATE.stage = 3;  // back to token (re-download likely)
+      STATE.done = [true, true, true, false, false, false, false];
+      toast('Onboard state cleared. Re-issue token and restart.', 'ok');
+      renderAll();
+    } catch (e) {
+      toast('Reset failed: ' + (e.message || e), 'danger');
+    }
+  } else {
+    if (!confirm('Reset the wizard? Form values will be cleared. (Nothing on the board yet — pre-commit only.)')) return;
+    STATE.stage = 0;
+    STATE.done = STAGES.map(() => false);
+    STATE.project = { name: '', slug: '', prefix: '', desc: '' };
+    STATE.agent = { name: '', vendor: 'claude', desc: '', agent_md: 'CLAUDE.md' };
+    renderAll();
+  }
+});
+
+// ============================================================
+// Boot
+// ============================================================
+renderAll();
+</script>
+</body>
+</html>

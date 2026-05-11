@@ -1,0 +1,468 @@
+{% extends "ui/admin_base.html" %}
+{# VF-306 — Agent telemetry & Drift workspace.
+   Bare-minimum migration of admin_experimental_drift.html into the new portal.
+   Keeps the legacy CSS/JS for the existing drift surfaces (toggle/KPIs/chart/
+   recent escalations/danger zone) so we ship the migration WITHOUT a re-skin.
+   Adds three new sections per VF-306:
+     1) Drift-window slider (live tunable look-back window)
+     2) Per-agent API call counter table
+     3) Per-agent drift-gate eval pass/fail table
+   See 0-MD/proposed/VF-306-AGENT-TELEMETRY-AND-DRIFT-PROPOSAL.md.
+#}
+{% block title %}Admin · Agent telemetry & Drift — VibeForge+{% endblock %}
+
+{% block extra_css %}
+{# admin_base.html wraps {% block extra_css %} INSIDE a <style> tag (line 11..),
+   so this block contains raw CSS only — no <style></style> wrappers. Same
+   for extra_js (raw JS, no <script>). See feedback_check_devtools_before_retheorizing.md. #}
+  .atd-warn{background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.18);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.78rem;color:#cbd5e1;line-height:1.5}
+  .atd-warn strong{color:#fca5a5}
+
+  .atd-toggle-row{display:flex;align-items:center;gap:1rem;padding:1.25rem 1.5rem;background:rgba(167,139,250,0.04);border:1px solid rgba(167,139,250,0.18);border-radius:10px;margin-bottom:1.5rem}
+  .atd-toggle-row .label{font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.08em;flex:1}
+  .toggle{position:relative;display:inline-block;width:56px;height:28px}
+  .toggle input{opacity:0;width:0;height:0}
+  .toggle .slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:rgba(148,163,184,0.3);transition:0.2s;border-radius:28px}
+  .toggle .slider::before{position:absolute;content:"";height:22px;width:22px;left:3px;bottom:3px;background:#94a3b8;transition:0.2s;border-radius:50%}
+  .toggle input:checked + .slider{background:rgba(16,185,129,0.35)}
+  .toggle input:checked + .slider::before{transform:translateX(28px);background:#10b981}
+  .toggle .state-label{font-family:'JetBrains Mono',monospace;font-size:0.7rem;font-weight:600;color:#94a3b8;min-width:60px;text-align:center}
+  .toggle.enabled .state-label{color:#10b981}
+
+  /* VF-306: drift-window slider — bare-minimum is 4 click-buttons */
+  .atd-window-row{display:flex;align-items:center;gap:1rem;padding:1.25rem 1.5rem;background:rgba(167,139,250,0.04);border:1px solid rgba(167,139,250,0.18);border-radius:10px;margin-bottom:1.5rem}
+  .atd-window-row .label{font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.08em}
+  .atd-window-row .desc{font-size:0.7rem;color:#94a3b8;flex:1}
+  .atd-win-btn{font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.4rem 0.85rem;border:1px solid rgba(167,139,250,0.3);background:transparent;color:#94a3b8;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;transition:all 0.15s}
+  .atd-win-btn:hover:not(.active){border-color:rgba(167,139,250,0.6);color:#c4b5fd}
+  .atd-win-btn.active{background:rgba(167,139,250,0.18);color:#c4b5fd;border-color:rgba(167,139,250,0.6)}
+
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem}
+  .kpi{background:rgba(167,139,250,0.04);border:1px solid rgba(167,139,250,0.15);border-radius:10px;padding:1.25rem}
+  .kpi .label{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:rgba(167,139,250,0.75);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem}
+  .kpi .value{font-size:1.8rem;font-weight:700;color:#e2e8f0}
+  .kpi .sub{font-size:0.65rem;color:#64748b;margin-top:0.25rem}
+
+  .chart-card{background:rgba(167,139,250,0.04);border:1px solid rgba(167,139,250,0.15);border-radius:10px;padding:1.25rem;margin-bottom:1.5rem}
+  .chart-card h3{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:rgba(167,139,250,0.75);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem}
+  .bars{display:flex;align-items:flex-end;gap:3px;height:100px;border-bottom:1px solid rgba(148,163,184,0.2);padding-top:0.5rem}
+  .bar{flex:1;min-width:6px;background:linear-gradient(180deg,rgba(239,68,68,0.7),rgba(239,68,68,0.35));border-radius:2px 2px 0 0;cursor:pointer;transition:filter 0.15s;position:relative}
+  .bar:hover{filter:brightness(1.4)}
+  .bar[data-count="0"]{background:rgba(148,163,184,0.12)}
+  .chart-labels{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:#64748b;margin-top:0.35rem}
+
+  .section{background:rgba(167,139,250,0.02);border:1px solid rgba(167,139,250,0.12);border-radius:10px;padding:1.25rem;margin-bottom:1.5rem}
+  .section h3{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:rgba(167,139,250,0.75);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between}
+  .filter-pills{display:flex;gap:0.35rem}
+  .pill{font-family:'JetBrains Mono',monospace;font-size:0.55rem;padding:3px 8px;border:1px solid rgba(167,139,250,0.2);border-radius:4px;color:#94a3b8;background:transparent;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em}
+  .pill.active{background:rgba(167,139,250,0.15);color:#c4b5fd;border-color:rgba(167,139,250,0.5)}
+  table.atd{width:100%;border-collapse:collapse;font-size:0.72rem}
+  table.atd th{text-align:left;color:rgba(167,139,250,0.6);font-family:'JetBrains Mono',monospace;font-size:0.55rem;text-transform:uppercase;letter-spacing:0.08em;padding:0.4rem 0.5rem;border-bottom:1px solid rgba(167,139,250,0.1)}
+  table.atd td{padding:0.5rem;border-bottom:1px solid rgba(167,139,250,0.04);color:#cbd5e1}
+  table.atd tr.active-row{background:rgba(239,68,68,0.05)}
+  table.atd tr.clickable:hover{background:rgba(167,139,250,0.05);cursor:pointer}
+  .status-chip{font-family:'JetBrains Mono',monospace;font-size:0.55rem;padding:1px 7px;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em}
+  .status-frozen{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3)}
+  .status-cleared{background:rgba(16,185,129,0.1);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25)}
+  .empty{padding:1.5rem;text-align:center;color:#64748b;font-size:0.75rem;font-style:italic}
+
+  .danger-zone{background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:1.25rem;margin-bottom:1.5rem}
+  .danger-zone h3{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#ef4444;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem}
+  .danger-zone p{font-size:0.72rem;color:#94a3b8;margin-bottom:0.75rem;line-height:1.5}
+  .btn-danger{font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.5rem 1rem;border:1px solid #ef4444;background:transparent;color:#ef4444;border-radius:5px;cursor:pointer;transition:all 0.15s;text-transform:uppercase;letter-spacing:0.08em}
+  .btn-danger:hover{background:#ef4444;color:white}
+
+  .drill-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center}
+  .drill-overlay.open{display:flex}
+  .drill-card{background:#1e293b;border:1px solid rgba(167,139,250,0.3);border-radius:12px;padding:1.5rem 2rem;max-width:600px;width:92vw;max-height:85vh;overflow:auto}
+  .drill-card h2{font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#c4b5fd;margin-bottom:0.75rem;display:flex;justify-content:space-between;align-items:center}
+  .drill-card .close{cursor:pointer;font-size:1.1rem;color:#94a3b8;background:none;border:none}
+  .drill-meta{font-size:0.72rem;color:#94a3b8;margin-bottom:1rem;line-height:1.6}
+  .drill-meta span{color:#e2e8f0}
+  .timeline{border-left:2px solid rgba(167,139,250,0.25);padding-left:1rem;margin-bottom:1rem}
+  .tl-row{position:relative;padding:0.4rem 0;font-size:0.7rem;color:#cbd5e1}
+  .tl-row::before{content:"●";position:absolute;left:-1.25rem;color:rgba(167,139,250,0.6);font-size:0.9rem}
+  .tl-time{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#64748b;margin-right:0.5rem}
+  .outcome{font-family:'JetBrains Mono',monospace;font-size:0.55rem;padding:1px 5px;border-radius:3px;margin-left:0.4rem;text-transform:uppercase;letter-spacing:0.06em}
+  .out-accepted{background:rgba(16,185,129,0.15);color:#6ee7b7}
+  .out-pass{background:rgba(16,185,129,0.15);color:#6ee7b7}
+  .out-dedup{background:rgba(245,158,11,0.15);color:#fcd34d}
+  .out-too_short,.out-too_long{background:rgba(148,163,184,0.15);color:#cbd5e1}
+  .out-prompt{background:rgba(167,139,250,0.15);color:#c4b5fd}
+  .out-fail,.out-escalated{background:rgba(239,68,68,0.2);color:#fca5a5}
+
+  .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1100;align-items:center;justify-content:center}
+  .confirm-overlay.open{display:flex}
+  .confirm-card{background:#1e293b;border:1px solid rgba(239,68,68,0.3);border-radius:12px;padding:1.5rem 2rem;max-width:480px;width:92vw}
+  .confirm-card h3{font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#fca5a5;margin-bottom:0.75rem}
+  .confirm-card p{font-size:0.78rem;color:#cbd5e1;margin-bottom:1rem;line-height:1.5}
+  .confirm-card label{display:flex;gap:0.5rem;align-items:flex-start;font-size:0.72rem;color:#94a3b8;margin-bottom:1rem;cursor:pointer}
+  .confirm-card .btn-row{display:flex;justify-content:flex-end;gap:0.5rem}
+  .btn-cancel{font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.5rem 1rem;border:1px solid rgba(148,163,184,0.25);background:transparent;color:#94a3b8;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em}
+{% endblock %}
+
+{% block content %}
+<div style="padding:1rem 0;max-width:1200px">
+
+  <h1 style="font-size:1.1rem;margin-bottom:1rem;color:#c4b5fd;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:0.06em">
+    ⚗ Agent telemetry &amp; Drift
+  </h1>
+
+  <div class="atd-warn">
+    <strong>⚠ Experimental — Drift Gate v4.1.</strong>
+    Detects agent drift over long sessions via session-state evals with pivot-and-escalate. When enabled, some agent writes may return 422 (drift-eval prompt) or 403 (frozen). Affects every user/agent on every project.
+  </div>
+
+  <!-- System toggle -->
+  <div class="atd-toggle-row" id="toggleRow">
+    <div style="flex:1">
+      <div class="label" style="margin-bottom:0.3rem">Drift gate · system-wide</div>
+      <div style="font-size:0.65rem;color:#94a3b8;line-height:1.45">
+        Toggles ONLY the <b style="color:#fca5a5">403 freeze</b> response on escalated agents. Eval prompts, pass/fail logging, and the per-agent counters all keep running regardless &mdash; flip OFF for an observation-mode run.
+      </div>
+    </div>
+    <span class="state-label" id="stateLabel">LOADING</span>
+    <label class="toggle" id="toggleWrap">
+      <input type="checkbox" id="toggleInput" onchange="onToggle()">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- VF-306 item 2: drift window slider -->
+  <div class="atd-window-row" id="windowRow">
+    <span class="label">Drift window</span>
+    <span class="desc">how far back the gate's interval check looks. Live — next gate firing uses the new value.</span>
+    <button class="atd-win-btn" data-secs="1200" onclick="setWindow(1200)">20 min</button>
+    <button class="atd-win-btn" data-secs="1800" onclick="setWindow(1800)">30 min</button>
+    <button class="atd-win-btn" data-secs="3600" onclick="setWindow(3600)">60 min</button>
+    <button class="atd-win-btn" data-secs="7200" onclick="setWindow(7200)">120 min</button>
+  </div>
+
+  {# VF-382 wizard-expiry slider relocated to /admin/portal/configuration/session-policy
+     "Project wizard" section per PK directive 2026-05-08. Backend setting + endpoints
+     (/admin/api/experimental/wizard-expiry) are unchanged; only the UI control moved. #}
+
+  <!-- KPI strip -->
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">Active</div><div class="value" id="kpiActive">–</div><div class="sub">escalations now</div></div>
+    <div class="kpi"><div class="label">Lifetime</div><div class="value" id="kpiLifetime">–</div><div class="sub">total escalations</div></div>
+    <div class="kpi"><div class="label">Avg clear</div><div class="value" id="kpiAvg">–</div><div class="sub">freeze to cleared</div></div>
+    <div class="kpi"><div class="label">Agents affected</div><div class="value" id="kpiAgents">–</div><div class="sub" id="kpiAgentsSub">of fleet</div></div>
+  </div>
+
+  <!-- Timeline chart -->
+  <div class="chart-card">
+    <h3>Escalations over time — last 30 days</h3>
+    <div class="bars" id="chartBars"></div>
+    <div class="chart-labels" id="chartLabels"></div>
+  </div>
+
+  <!-- Recent escalations -->
+  <div class="section">
+    <h3>
+      Recent escalations
+      <span class="filter-pills">
+        <button class="pill active" data-status="all" onclick="setFilter('all')">All</button>
+        <button class="pill" data-status="active" onclick="setFilter('active')">Active</button>
+        <button class="pill" data-status="cleared" onclick="setFilter('cleared')">Cleared</button>
+      </span>
+    </h3>
+    <table class="atd">
+      <thead><tr><th>Agent</th><th>Project</th><th>Task</th><th>Started</th><th>Duration</th><th>Status</th></tr></thead>
+      <tbody id="escTbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- VF-306 item 1: per-agent API call counters -->
+  <div class="section">
+    <h3>API calls — per agent (since last token cycle)</h3>
+    <table class="atd">
+      <thead><tr><th>Agent</th><th>Status</th><th>API calls</th><th>Counting since</th><th>Last seen</th></tr></thead>
+      <tbody id="apiTbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table>
+    <p style="font-size:0.65rem;color:#64748b;margin-top:0.5rem;font-style:italic">
+      Counts authenticated agent-token requests. SA / SU / human sessions do NOT count. Resets on token cycle.
+    </p>
+  </div>
+
+  <!-- VF-306 item 3: per-agent drift-gate eval pass/fail -->
+  <div class="section">
+    <h3>Drift-gate evals — per agent (lifetime totals)</h3>
+    <table class="atd">
+      <thead><tr><th>Agent</th><th>Status</th><th>Pass</th><th>Fail</th><th>Last passed</th><th>Pivot count</th></tr></thead>
+      <tbody id="evalTbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+    <p style="font-size:0.65rem;color:#64748b;margin-top:0.5rem;font-style:italic">
+      Lifetime totals (no windowing yet). Per-window views deferred to POST RC/1.0.
+    </p>
+  </div>
+
+  <!-- Danger zone -->
+  <div class="danger-zone">
+    <h3>Danger zone</h3>
+    <p>Ends every active escalation, unfreezes every frozen agent, clears all task flag state. Audit notes on affected tasks remain. Does not disable the gate — use the toggle above for that.</p>
+    <button class="btn-danger" onclick="openResetConfirm()">Reset all drift state</button>
+  </div>
+
+</div>
+
+<!-- Drilldown overlay -->
+<div class="drill-overlay" id="drillOverlay" onclick="if(event.target===this)closeDrill()">
+  <div class="drill-card" id="drillCard">
+    <h2>Escalation <span id="drillId">#…</span> <button class="close" onclick="closeDrill()">×</button></h2>
+    <div class="drill-meta" id="drillMeta"></div>
+    <div class="timeline" id="drillTimeline"></div>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="confirm-overlay" id="confirmOverlay" onclick="if(event.target===this)closeConfirm()">
+  <div class="confirm-card">
+    <h3 id="confirmTitle">Confirm</h3>
+    <p id="confirmMsg"></p>
+    <label>
+      <input type="checkbox" id="confirmCheck" onchange="document.getElementById('confirmOK').disabled=!this.checked">
+      <span id="confirmCheckLabel">I understand</span>
+    </label>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeConfirm()">Cancel</button>
+      <button class="btn-danger" id="confirmOK" disabled onclick="confirmAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  let _filter = 'all';
+  let _pendingConfirm = null;
+
+  function _toast(msg, type) {
+    type = type || 'error';
+    var bg = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#f59e0b';
+    var t = document.createElement('div');
+    t.style.cssText = 'position:fixed;top:1rem;left:50%;transform:translateX(-50%);z-index:9999;background:' + bg + ';color:#fff;font-family:"JetBrains Mono",monospace;font-size:0.8125rem;padding:0.5rem 1.25rem;border-radius:0.5rem;cursor:pointer;transition:opacity 0.5s;max-width:90vw;word-break:break-word;';
+    t.textContent = msg;
+    t.onclick = function() { t.remove(); };
+    document.body.appendChild(t);
+    setTimeout(function() { t.style.opacity = '0'; }, 4000);
+    setTimeout(function() { t.remove(); }, 4500);
+  }
+
+  async function loadSummary() {
+    const r = await fetch('/admin/api/experimental/drift/summary');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('kpiActive').textContent = d.active;
+    document.getElementById('kpiLifetime').textContent = d.lifetime;
+    document.getElementById('kpiAvg').textContent = d.avg_clear_seconds == null ? '—' : fmtDuration(d.avg_clear_seconds);
+    document.getElementById('kpiAgents').textContent = `${d.agents_affected} of ${d.agents_total}`;
+    const pct = d.agents_total ? Math.round(100 * d.agents_affected / d.agents_total) : 0;
+    document.getElementById('kpiAgentsSub').textContent = `${pct}% of fleet`;
+
+    const t = document.getElementById('toggleInput');
+    const wrap = document.getElementById('toggleWrap');
+    const state = document.getElementById('stateLabel');
+    t.checked = !!d.drift_gate_enabled;
+    wrap.classList.toggle('enabled', !!d.drift_gate_enabled);
+    state.textContent = d.drift_gate_enabled ? 'ENABLED' : 'DISABLED';
+    state.style.color = d.drift_gate_enabled ? '#10b981' : '#94a3b8';
+  }
+
+  async function loadWindow() {
+    const r = await fetch('/admin/api/experimental/drift/window');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.querySelectorAll('.atd-win-btn').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.secs) === d.drift_eval_window_seconds);
+    });
+  }
+
+  async function setWindow(secs) {
+    const r = await fetch('/admin/api/experimental/drift/window', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ seconds: secs })
+    });
+    if (r.ok) { await loadWindow(); _toast('Drift window: ' + (secs/60) + ' min', 'success'); }
+    else { _toast('Window update failed (HTTP ' + r.status + ')'); }
+  }
+
+  // VF-382 wizard-expiry JS relocated to admin_portal_session_policy.html (PK directive 2026-05-08).
+
+  async function loadChart() {
+    const r = await fetch('/admin/api/experimental/drift/timeline');
+    if (!r.ok) return;
+    const rows = await r.json();
+    const today = new Date();
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      days.push(d.toISOString().slice(0,10));
+    }
+    const byDay = Object.fromEntries(rows.map(r => [r.day, r.count]));
+    const max = Math.max(1, ...days.map(d => byDay[d] || 0));
+    document.getElementById('chartBars').innerHTML = days.map(d => {
+      const n = byDay[d] || 0;
+      const h = (n / max) * 100;
+      return `<div class="bar" data-count="${n}" style="height:${h}%" title="${d}: ${n}"></div>`;
+    }).join('');
+    document.getElementById('chartLabels').innerHTML =
+      `<span>${days[0]}</span><span>${days[14]}</span><span>${days[29]}</span>`;
+  }
+
+  async function loadTable() {
+    const r = await fetch(`/admin/api/experimental/drift/recent?status=${_filter}&limit=50`);
+    const tbody = document.getElementById('escTbody');
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Error loading</td></tr>'; return; }
+    const rows = await r.json();
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No escalations</td></tr>'; return; }
+    tbody.innerHTML = rows.map(row => `
+      <tr class="clickable ${row.active ? 'active-row' : ''}" onclick="openDrill('${row.id}')">
+        <td>${escapeHtml(row.agent_name)}</td>
+        <td>${escapeHtml(row.project_slug)}</td>
+        <td>${row.task_number ? 'VF-'+row.task_number : '—'}</td>
+        <td>${fmtAgo(row.started_at)}</td>
+        <td>${row.duration_seconds == null ? 'active' : fmtDuration(row.duration_seconds)}</td>
+        <td><span class="status-chip ${row.active ? 'status-frozen' : 'status-cleared'}">${row.active ? '🔴 FROZEN' : '✓ CLEARED'}</span></td>
+      </tr>`).join('');
+  }
+
+  async function loadApiCounters() {
+    const r = await fetch('/admin/api/experimental/agent-api-counters');
+    const tbody = document.getElementById('apiTbody');
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="5" class="empty">Error loading</td></tr>'; return; }
+    const rows = await r.json();
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No agents</td></tr>'; return; }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.agent_name)}</td>
+        <td><span class="status-chip ${r.status === 'active' ? 'status-cleared' : 'status-frozen'}">${escapeHtml(r.status)}</span></td>
+        <td><b>${r.api_call_count}</b>${r.has_token ? '' : ' <span style="color:#64748b;font-size:0.6rem">(no token)</span>'}</td>
+        <td>${r.since ? fmtDate(r.since) : '—'}</td>
+        <td>${r.last_seen_at ? fmtAgo(r.last_seen_at) : '—'}</td>
+      </tr>`).join('');
+  }
+
+  async function loadEvalStats() {
+    const r = await fetch('/admin/api/experimental/drift/agent-eval-stats');
+    const tbody = document.getElementById('evalTbody');
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Error loading</td></tr>'; return; }
+    const rows = await r.json();
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No agents</td></tr>'; return; }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.agent_name)}</td>
+        <td><span class="status-chip ${r.status === 'active' ? 'status-cleared' : 'status-frozen'}">${escapeHtml(r.status)}</span></td>
+        <td><span class="outcome out-pass">${r.passes}</span></td>
+        <td><span class="outcome out-fail">${r.fails}</span></td>
+        <td>${r.last_passed_at ? fmtAgo(r.last_passed_at) : '—'}</td>
+        <td>${r.eval_count != null ? r.eval_count : 0}</td>
+      </tr>`).join('');
+  }
+
+  function setFilter(f) {
+    _filter = f;
+    document.querySelectorAll('.pill').forEach(p => p.classList.toggle('active', p.dataset.status === f));
+    loadTable();
+  }
+
+  async function openDrill(escId) {
+    const r = await fetch(`/admin/api/experimental/drift/escalation/${escId}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('drillId').textContent = '#' + d.id.slice(0, 8);
+    document.getElementById('drillMeta').innerHTML = `
+      <div>Agent: <span>${escapeHtml(d.agent_name || '?')}</span></div>
+      <div>Project: <span>${escapeHtml(d.project_slug || '?')}</span></div>
+      <div>Task: <span>${d.task_number ? 'VF-'+d.task_number+' — '+escapeHtml(d.task_title||'') : '—'}</span></div>
+      <div>Started: <span>${d.started_at}</span></div>
+      <div>Ended: <span>${d.ended_at || '— (active)'}</span></div>
+      ${d.cleared_reason ? `<div>Cleared reason: <span>${escapeHtml(d.cleared_reason)}</span></div>` : ''}`;
+    document.getElementById('drillTimeline').innerHTML = d.attempts.length
+      ? d.attempts.map(a => `
+          <div class="tl-row">
+            <span class="tl-time">${a.attempted_at.slice(11,19)}</span>
+            Q${a.question_idx}
+            <span class="outcome out-${a.outcome}">${a.outcome}</span>
+          </div>`).join('')
+      : '<div class="tl-row" style="color:#64748b;font-style:italic">No recorded attempts</div>';
+    document.getElementById('drillOverlay').classList.add('open');
+  }
+  function closeDrill() { document.getElementById('drillOverlay').classList.remove('open'); }
+
+  function openToggleConfirm(targetEnabled) {
+    _pendingConfirm = () => doToggle(targetEnabled);
+    document.getElementById('confirmTitle').textContent = targetEnabled ? 'Enable drift gate system-wide' : 'Disable drift gate system-wide';
+    document.getElementById('confirmMsg').textContent = targetEnabled
+      ? 'This will apply the v4 drift gate to all users and agents across every project. Agents may receive 422 drift-eval prompts and 403 freeze responses. Continue?'
+      : 'This will disable the drift gate system-wide. Agents will no longer receive drift-eval prompts or freeze responses. Existing escalations remain until cleared or reset. Continue?';
+    document.getElementById('confirmCheckLabel').textContent = 'I understand this affects all users and agents';
+    const ch = document.getElementById('confirmCheck'); ch.checked = false;
+    document.getElementById('confirmOK').disabled = true;
+    document.getElementById('confirmOverlay').classList.add('open');
+  }
+
+  function openResetConfirm() {
+    _pendingConfirm = () => doReset();
+    document.getElementById('confirmTitle').textContent = 'Reset all drift state';
+    document.getElementById('confirmMsg').textContent = 'End every active escalation, unfreeze every frozen agent, and clear all active task flags. Internal audit notes remain. Continue?';
+    document.getElementById('confirmCheckLabel').textContent = 'I understand this ends all active escalations';
+    const ch = document.getElementById('confirmCheck'); ch.checked = false;
+    document.getElementById('confirmOK').disabled = true;
+    document.getElementById('confirmOverlay').classList.add('open');
+  }
+
+  function closeConfirm() { document.getElementById('confirmOverlay').classList.remove('open'); _pendingConfirm = null; }
+  function confirmAction() { if (_pendingConfirm) _pendingConfirm(); closeConfirm(); }
+
+  function onToggle() {
+    const t = document.getElementById('toggleInput');
+    const target = t.checked;
+    t.checked = !target;
+    openToggleConfirm(target);
+  }
+
+  async function doToggle(enabled) {
+    const r = await fetch('/admin/api/experimental/drift/toggle', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ enabled })
+    });
+    if (r.ok) { await loadSummary(); _toast('Drift gate ' + (enabled ? 'enabled' : 'disabled'), 'success'); }
+    else { _toast('Toggle failed (HTTP ' + r.status + ')'); }
+  }
+
+  async function doReset() {
+    const r = await fetch('/admin/api/experimental/drift/reset-all', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ confirm: true })
+    });
+    if (r.ok) {
+      const d = await r.json();
+      await loadSummary(); await loadTable();
+      _toast(`Ended ${d.ended} escalations.`, 'success');
+    } else { _toast('Reset failed (HTTP ' + r.status + ')'); }
+  }
+
+  function escapeHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function fmtDuration(sec) {
+    if (sec == null) return '—';
+    if (sec < 60) return sec + 's';
+    if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+    return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+  }
+  function fmtAgo(iso) {
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 60) return Math.floor(diff) + 's ago';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+  }
+  function fmtDate(iso) { return iso.slice(0, 10); }
+
+  loadSummary();
+  loadWindow();
+  loadChart();
+  loadTable();
+  loadApiCounters();
+  loadEvalStats();
+  setInterval(() => { loadSummary(); loadTable(); loadApiCounters(); loadEvalStats(); }, 10000);
+{% endblock %}

@@ -1,0 +1,768 @@
+{% extends "base.html" %}
+
+{% block title %}Board — {{ project.name if project else slug }} — VibeForge+{% endblock %}
+
+{% block content_class %}board-content{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title">
+    <a href="/ui/" style="color: var(--color-text-muted); text-decoration: none;">Home</a>
+    <span style="margin: 0 var(--space-2); color: var(--color-text-muted);">/</span>
+    <a href="/ui/projects/{{ project.slug if project else slug }}" style="color: var(--color-text-muted); text-decoration: none;">{{ project.name if project else slug }}</a>
+    <span style="margin: 0 var(--space-2); color: var(--color-text-muted);">/</span>
+    Board
+  </div>
+  <div class="topbar-actions">
+    <div class="view-toggle">
+      <span class="view-toggle-btn active">Board</span>
+      <a href="/ui/projects/{{ project.slug if project else slug }}/gantt{% if active_milestone %}?milestone={{ active_milestone | urlencode }}{% endif %}"
+         class="view-toggle-btn">Gantt</a>
+    </div>
+    {% if not project or project.status == 'active' %}
+    <button class="btn btn-primary" onclick="openAddTask()">+ Add Task</button>
+    {% endif %}
+    <button class="btn btn-ghost" onclick="window.openSearchPopup && window.openSearchPopup()" title="Search tasks" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);gap:var(--space-2);display:inline-flex;align-items:center">&#128269; Search</button>
+    <button class="btn btn-ghost" onclick="refreshAllColumns()" title="Refresh all columns" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);">&#8635;</button>
+    {% if project and project.status in ('archived', 'completed') %}
+    <span style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-text-muted);padding:var(--space-1) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);">Read-only ({{ project.status }})</span>
+    {% endif %}
+    {% include "ui/_project_actions.html" %}
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{% set slug = project.slug if project else slug %}
+{% set milestone_qs = ('&milestone=' ~ active_milestone) if active_milestone else '' %}
+
+<div class="board-wrap">
+
+  {# ── TOP: milestone filter chips + heading ─────────────────────── #}
+  <div class="board-top">
+    {% if milestones %}
+    <div class="milestone-filter" id="milestoneFilter">
+      <a href="?" class="milestone-chip milestone-chip--clear" title="Clear filter"
+         data-milestone="" style="{% if not active_milestone %}display:none;{% endif %}"
+         id="milestoneChipClear"
+         onclick="filterMilestone('', this); return false;">× All</a>
+      {% for m_label, m_name in milestones %}
+      <a href="?milestone={{ m_label | urlencode }}"
+         class="milestone-chip {% if active_milestone == m_label %}milestone-chip--active{% endif %}"
+         data-milestone="{{ m_label }}"
+         data-milestone-name="{{ m_name }}"
+         title="{{ m_name }}"
+         onclick="filterMilestone('{{ m_label }}', this); return false;">
+        <span class="ms-tag">{{ m_label | replace('Milestone ', '') }}</span>
+        {{ m_name }}
+      </a>
+      {% endfor %}
+    </div>
+    <div class="milestone-heading" id="milestoneHeading" style="{% if not active_milestone %}display:none;{% endif %}">
+      <span class="milestone-heading-label" id="milestoneHeadingLabel">{{ active_milestone or '' }}</span>
+      <span class="milestone-heading-name" id="milestoneHeadingName">{{ active_milestone_name or '' }}</span>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── COLUMNS: independent per-column scroll ─────────────────────── #}
+  <div class="board-columns-wrap">
+  <div class="scroll-hint scroll-hint--left" id="scrollHintL">‹</div>
+  <div class="scroll-hint scroll-hint--right" id="scrollHintR">›</div>
+  <div class="board-columns" id="boardColumns">
+
+    {# Backlog #}
+    <div class="board-col">
+      <div class="col-header">
+        <span class="col-dot status-backlog"></span>
+        <span class="col-label">Backlog</span>
+        <span class="col-count">–</span>
+      </div>
+      <div class="col-body sortable-col"
+           id="col-backlog"
+           data-status="backlog"
+           hx-get="/api/v2/projects/{{ slug }}/tasks/board-column?status=backlog{{ milestone_qs }}"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="task-card-skeleton"></div>
+      </div>
+    </div>
+
+    {# Active flow columns #}
+    <div style="display:contents;">
+
+      {% set flow_cols = [
+        ('ready',        'Ready',        'status-ready'),
+        ('in_progress',  'In Progress',  'status-in-progress'),
+        ('needs_review', 'Needs Review', 'status-needs-review'),
+        ('blocked',      'Blocked',      'status-blocked'),
+      ] %}
+
+      {% for status_key, status_label, status_cls in flow_cols %}
+      <div class="board-col">
+        <div class="col-header">
+          <span class="col-dot {{ status_cls }}"></span>
+          <span class="col-label">{{ status_label }}</span>
+          <span class="col-count">–</span>
+        </div>
+        <div class="col-body sortable-col"
+             id="col-{{ status_key }}"
+             data-status="{{ status_key }}"
+             hx-get="/api/v2/projects/{{ slug }}/tasks/board-column?status={{ status_key }}{{ milestone_qs }}"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <div class="task-card-skeleton"></div>
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+
+    {# ── CLOSED: Done + Cancelled as collapsible columns on the right (VF-320) ── #}
+    <div class="board-col board-col--closed board-col--collapsible" data-col-key="done">
+      <div class="col-header col-header--clickable" onclick="vf320ToggleColumn('done')">
+        <span class="col-dot status-done"></span>
+        <span class="col-label">Done</span>
+        <span class="col-count">–</span>
+        <span class="col-toggle col-toggle--open" aria-label="Collapse column">&#9656;</span>
+      </div>
+      <div class="col-body sortable-col"
+           id="col-done"
+           data-status="done"
+           hx-get="/api/v2/projects/{{ slug }}/tasks/board-column?status=done{{ milestone_qs }}"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="task-card-skeleton"></div>
+      </div>
+    </div>
+
+    <div class="board-col board-col--closed board-col--collapsible" data-col-key="cancelled">
+      <div class="col-header col-header--clickable" onclick="vf320ToggleColumn('cancelled')">
+        <span class="col-dot status-cancelled"></span>
+        <span class="col-label">Cancelled</span>
+        <span class="col-count">–</span>
+        <span class="col-toggle col-toggle--open" aria-label="Collapse column">&#9656;</span>
+      </div>
+      <div class="col-body sortable-col"
+           id="col-cancelled"
+           data-status="cancelled"
+           hx-get="/api/v2/projects/{{ slug }}/tasks/board-column?status=cancelled{{ milestone_qs }}"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="task-card-skeleton"></div>
+      </div>
+    </div>
+
+  </div>
+  </div>{# close board-columns-wrap #}
+
+</div>
+
+{% endblock %}
+
+{% block modals %}
+{% include "ui/_archive_animation.html" %}
+{% include "ui/_addtask.html" %}
+
+
+
+{% include "ui/_editor.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% include "ui/_editor_js.html" %}
+
+// Click handler on task cards — delegate from board
+document.addEventListener('click', function(e) {
+  const card = e.target.closest('.task-card');
+  if (!card || e.target.closest('.sortable-chosen')) return;
+  const taskId = card.dataset.taskId;
+  if (taskId) openDrawer(taskId, card);
+});
+
+// Project read-only flag for editor
+window._projectReadOnly = _projectReadOnly;
+
+// Auto-open drawer if ?open=taskId in URL (from Gantt links)
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var openId = params.get('open');
+  if (openId) {
+    // Wait for columns to load, then open drawer
+    setTimeout(function() { openDrawer(openId, null); }, 800);
+    // Clean URL
+    history.replaceState(null, '', window.location.pathname + (params.get('milestone') ? '?milestone=' + params.get('milestone') : ''));
+  }
+})();
+
+{% include "ui/_addtask_js.html" %}
+
+var _projectReadOnly = {{ 'true' if project and project.status in ('archived', 'completed') else 'false' }};
+
+function initSortable() {
+  if (_projectReadOnly) return; // no drag on archived/completed
+  document.querySelectorAll('.sortable-col').forEach(col => {
+    // Destroy existing Sortable if any, then recreate
+    if (col._sortable) col._sortable.destroy();
+    col._sortable = Sortable.create(col, {
+      group: 'board',
+      animation: 150,
+      ghostClass: 'task-card--ghost',
+      draggable: '.task-card',
+      filter: '[data-phase="true"]',
+      onEnd(evt) {
+        const taskId = evt.item.dataset.taskId;
+        if (!taskId) return;
+        const newStatus = evt.to.dataset.status;
+        const fromStatus = evt.from.dataset.status;
+
+        function refreshCol(status) {
+          var c = document.getElementById('col-' + status);
+          if (c) htmx.ajax('GET', c.getAttribute('hx-get'), { target: '#col-' + status, swap: 'innerHTML' });
+        }
+
+        function getDragFlowMs() {
+          var v = getComputedStyle(document.documentElement).getPropertyValue('--drag-flow-ms').trim();
+          return parseInt(v) || 5000;
+        }
+
+        function pulseCard(taskId, cls) {
+          var flowMs = getDragFlowMs();
+          var pulseMs = flowMs * 0.65;
+          // Wait for column refresh then pulse
+          setTimeout(function() {
+            var el = document.querySelector('[data-task-id="' + taskId + '"]');
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              el.style.animationDuration = pulseMs + 'ms';
+              el.classList.add(cls);
+              setTimeout(function() { el.classList.remove(cls); el.style.animationDuration = ''; }, pulseMs + 200);
+            }
+          }, 500);
+        }
+
+        // Water drop pulse on a real card — green=success, red=dismissed
+        function glowCard(taskId, isSuccess) {
+          var el = document.querySelector('[data-task-id="' + taskId + '"]');
+          if (!el) return;
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+          var flowMs = getDragFlowMs();
+          var pulsePct = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drag-pulse-pct').trim()) || 40;
+          var pulseMs = flowMs * (pulsePct / 100);
+          var halfPulse = pulseMs * 0.4;
+          var dropColour = isSuccess ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)';
+          var dropColourStrong = isSuccess ? 'rgba(16,185,129,0.55)' : 'rgba(239,68,68,0.55)';
+          var origBg = getComputedStyle(el).background;
+
+          // Ripple 1
+          el.style.transition = 'none';
+          el.style.transformOrigin = 'center center';
+          el.style.background = dropColourStrong;
+          el.style.transform = 'scale(1.08)';
+          el.style.boxShadow = '0 0 24px 8px ' + dropColour;
+          el.offsetHeight;
+
+          el.style.transition = 'transform ' + halfPulse + 'ms cubic-bezier(0.2,0,0.2,1), background ' + halfPulse + 'ms ease, box-shadow ' + halfPulse + 'ms ease';
+          el.style.transform = 'scale(1)';
+          el.style.background = '';
+          el.style.boxShadow = '0 0 0 0 transparent';
+
+          // Ripple 2
+          setTimeout(function() {
+            el.style.transition = 'none';
+            el.style.background = dropColour;
+            el.style.transform = 'scale(1.05)';
+            el.style.boxShadow = '0 0 16px 4px ' + dropColour;
+            el.offsetHeight;
+
+            el.style.transition = 'transform ' + halfPulse + 'ms cubic-bezier(0.2,0,0.2,1), background ' + halfPulse + 'ms ease, box-shadow ' + halfPulse + 'ms ease';
+            el.style.transform = '';
+            el.style.background = '';
+            el.style.boxShadow = '';
+          }, halfPulse);
+
+          // Clean up
+          setTimeout(function() { el.style.transition = ''; el.style.transformOrigin = ''; }, halfPulse * 2 + 100);
+        }
+
+        // No flight — refresh columns, scroll to card, water drop on the real card
+        function flyCard(taskId, sourceRect, destColId, isSuccess, afterFly) {
+          if (afterFly) afterFly();
+
+          // Wait for column refresh
+          setTimeout(function() {
+            var realCard = document.querySelector('[data-task-id="' + taskId + '"]');
+            if (realCard) realCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            // Wait for scroll to settle, then water drop
+            setTimeout(function() {
+              glowCard(taskId, isSuccess);
+            }, 400);
+          }, 600);
+        }
+
+        if (newStatus === fromStatus) return; // dropped in same column
+
+        // Capture WHERE the user dropped the card (Sortable already moved it)
+        var dropRect = evt.item.getBoundingClientRect();
+
+        // Revert Sortable's move — animation takes over from the drop point
+        if (evt.from !== evt.to) {
+          evt.from.insertBefore(evt.item, evt.from.children[evt.oldIndex] || null);
+        }
+
+        if (newStatus === 'cancelled' && fromStatus !== 'cancelled') {
+          // Prompt first, then fly on confirm. Red pulse source on dismiss.
+          promptStatusReason('cancelled', (reason) => {
+            window._localDragTaskId = taskId;
+            clearTimeout(window._localDragTimeout);
+            window._localDragTimeout = setTimeout(function() { window._localDragTaskId = null; }, 5000);
+            var logEntry = appendLogEntry([], 'cancelled', reason);
+            fetch(`/api/v2/tasks/${taskId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus, abandoned_note: logEntry }),
+            }).then(r => {
+              if (r.ok) {
+                flyCard(taskId, dropRect, 'col-' + newStatus, true, function() {
+                  refreshCol(fromStatus); refreshCol(newStatus);
+                });
+              }
+            });
+          }, function() {
+            glowCard(taskId, false);
+          });
+        } else if ((fromStatus === 'cancelled' || fromStatus === 'done') && newStatus !== 'cancelled' && newStatus !== 'done') {
+          // Prompt for reopen reason, then fly
+          fetch(`/api/v2/tasks/${taskId}`).then(r => r.json()).then(t => {
+            var existingLog = parseStatusLog(t.abandoned_note);
+            promptStatusReason('reopened', (reason) => {
+              window._localDragTaskId = taskId;
+              clearTimeout(window._localDragTimeout);
+              window._localDragTimeout = setTimeout(function() { window._localDragTaskId = null; }, 5000);
+              var logEntry = appendLogEntry(existingLog, 'reopened', reason);
+              fetch(`/api/v2/tasks/${taskId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus, abandoned_note: logEntry, transition_note: 'Reopened: ' + reason }),
+              }).then(r => {
+                if (r.ok) {
+                  flyCard(taskId, dropRect, 'col-' + newStatus, true, function() {
+                    refreshCol(fromStatus); refreshCol(newStatus);
+                  });
+                } else {
+                  r.json().then(d => {
+                    glowCard(taskId, false);
+                    showTransitionError(d.detail || 'Reopen failed');
+                  });
+                }
+              });
+            }, function() {
+              glowCard(taskId, false);
+            });
+          });
+        } else if (newStatus === 'blocked') {
+          // Gated transition — prompt for reason via the themed dialog
+          promptStatusReason(newStatus, function(reason) {
+            window._localDragTaskId = taskId;
+            clearTimeout(window._localDragTimeout);
+            window._localDragTimeout = setTimeout(function() { window._localDragTaskId = null; }, 5000);
+            fetch(`/api/v2/tasks/${taskId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus, transition_note: reason }),
+            }).then(r => {
+              if (r.ok) {
+                flyCard(taskId, dropRect, 'col-' + newStatus, true, function() {
+                  refreshCol(fromStatus); refreshCol(newStatus);
+                });
+              } else {
+                r.json().then(d => {
+                  setTimeout(function() { glowCard(taskId, false); }, 200);
+                  showTransitionError(d.detail || 'Invalid move');
+                }).catch(function() {
+                  setTimeout(function() { glowCard(taskId, false); }, 200);
+                });
+              }
+            });
+          }, function() {
+            glowCard(taskId, false);
+          });
+        } else {
+          // Normal drag — patch, fly clone, green pulse on success
+          window._localDragTaskId = taskId;
+          clearTimeout(window._localDragTimeout);
+          window._localDragTimeout = setTimeout(function() { window._localDragTaskId = null; }, 5000);
+
+          fetch(`/api/v2/tasks/${taskId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus, transition_note: 'Dragged from ' + fromStatus + ' to ' + newStatus }),
+          }).then(r => {
+            if (r.ok) {
+              flyCard(taskId, dropRect, 'col-' + newStatus, true, function() {
+                refreshCol(fromStatus); refreshCol(newStatus);
+              });
+            } else {
+              r.json().then(d => {
+                setTimeout(function() { glowCard(taskId, false); }, 200);
+                showTransitionError(d.detail || 'Invalid move');
+              }).catch(function() {
+                setTimeout(function() { glowCard(taskId, false); }, 200);
+              });
+            }
+          });
+        }
+      },
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initSortable);
+document.addEventListener('htmx:afterSwap', initSortable);
+
+// Re-hide flying card after HTMX refresh replaces DOM
+document.addEventListener('htmx:afterSwap', function() {
+  if (window._flyingTaskId) {
+    var el = document.querySelector('[data-task-id="' + window._flyingTaskId + '"]');
+    if (el) el.setAttribute('data-flying', '1');
+  }
+});
+
+/* ── Column task count + localise card dates ── */
+function updateColumnCounts() {
+  document.querySelectorAll('.board-col').forEach(col => {
+    const body = col.querySelector('.col-body');
+    const countEl = col.querySelector('.col-count');
+    if (body && countEl) {
+      const n = body.querySelectorAll('.task-card').length;
+      countEl.textContent = n || '–';
+    }
+  });
+  // Localise date text on cards
+  document.querySelectorAll('.task-date').forEach(el => {
+    const s = el.dataset.start;
+    const d = el.dataset.due;
+    const textEl = el.querySelector('.task-date-text');
+    if (!textEl) return;
+    if (s && d) textEl.textContent = vfDate(s) + ' – ' + vfDate(d);
+    else if (s) textEl.textContent = vfDate(s);
+    else if (d) textEl.textContent = vfDate(d);
+  });
+}
+document.addEventListener('htmx:afterSwap', updateColumnCounts);
+document.addEventListener('DOMContentLoaded', () => setTimeout(updateColumnCounts, 600));
+
+/* ── VF-320: Done / Cancelled column collapse (localStorage-persisted) ── */
+const VF320_LS_PREFIX = 'vf320_col_collapsed_';
+
+function vf320ApplyState(key, collapsed) {
+  const col = document.querySelector('.board-col--collapsible[data-col-key="' + key + '"]');
+  if (!col) return;
+  col.classList.toggle('is-collapsed', !!collapsed);
+  const toggle = col.querySelector('.col-toggle');
+  if (toggle) toggle.classList.toggle('col-toggle--open', !collapsed);
+}
+
+function vf320ToggleColumn(key) {
+  const col = document.querySelector('.board-col--collapsible[data-col-key="' + key + '"]');
+  if (!col) return;
+  const nowCollapsed = !col.classList.contains('is-collapsed');
+  vf320ApplyState(key, nowCollapsed);
+  try { localStorage.setItem(VF320_LS_PREFIX + key, nowCollapsed ? '1' : '0'); } catch(e) {}
+}
+window.vf320ToggleColumn = vf320ToggleColumn;
+
+document.addEventListener('DOMContentLoaded', () => {
+  ['done', 'cancelled'].forEach(k => {
+    let stored = null;
+    try { stored = localStorage.getItem(VF320_LS_PREFIX + k); } catch(e) {}
+    // Default: collapsed for a cleaner board. First visit → collapse.
+    const collapsed = stored === null ? true : stored === '1';
+    vf320ApplyState(k, collapsed);
+  });
+});
+
+/* ── Refresh all columns ──
+   VF-163 bug-fix: htmx.ajax() is being dropped/deduped by HTMX 1.9 when called
+   7 times in rapid succession without a proper `source` element — only 2 XHRs
+   actually fired on an app-refresh click, leaving Ready/InProgress/NeedsReview/
+   Blocked/Done with stale content (e.g. a blocked_by pill that VF-163 already
+   cleared server-side). Direct fetch bypasses HTMX's internal queueing and
+   each column refreshes independently. */
+function refreshAllColumns() {
+  document.querySelectorAll('.col-body[id^="col-"]').forEach(function(col) {
+    var url = col.getAttribute('hx-get');
+    if (!url) return;
+    fetch(url, { credentials: 'same-origin', headers: { 'HX-Request': 'true' } })
+      .then(function(r) { return r.ok ? r.text() : null; })
+      .then(function(html) {
+        if (html !== null) {
+          col.innerHTML = html;
+          // Manually fire htmx:afterSwap so listeners (counts, sortable) run.
+          col.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+        }
+      })
+      .catch(function() { /* silent — another refresh will retry */ });
+  });
+  setTimeout(function() { updateColumnCounts(); initSortable(); }, 500);
+}
+
+/* ── Transition error toast (delegates to global vfToast) ── */
+function showTransitionError(msg) { vfToast(msg, 'error'); }
+
+/* ── Contextual wheel scroll ──
+   Column has vertical overflow & not at boundary → scroll column vertically.
+   Otherwise → translate wheel into horizontal board scroll. */
+(function() {
+  const bc = document.getElementById('boardColumns');
+  if (!bc) return;
+
+  bc.addEventListener('wheel', function(e) {
+    const colBody = e.target.closest('.col-body');
+
+    if (colBody && colBody.scrollHeight > colBody.clientHeight + 1) {
+      const atTop    = colBody.scrollTop <= 0 && e.deltaY < 0;
+      const atBottom = colBody.scrollTop + colBody.clientHeight >= colBody.scrollHeight - 1 && e.deltaY > 0;
+      if (!atTop && !atBottom) return; // let column scroll vertically
+    }
+
+    // No vertical overflow or at boundary → horizontal scroll
+    e.preventDefault();
+    bc.scrollLeft += e.deltaY;
+  }, { passive: false });
+
+  /* ── Scroll hint arrows ── */
+  const hL = document.getElementById('scrollHintL');
+  const hR = document.getElementById('scrollHintR');
+
+  function updateHints() {
+    const canL = bc.scrollLeft > 2;
+    const canR = bc.scrollLeft + bc.clientWidth < bc.scrollWidth - 2;
+    hL.classList.toggle('is-visible', canL);
+    hR.classList.toggle('is-visible', canR);
+  }
+
+  bc.addEventListener('scroll', updateHints, { passive: true });
+  window.addEventListener('resize', updateHints);
+  // Run after columns load
+  setTimeout(updateHints, 500);
+  document.addEventListener('htmx:afterSwap', () => setTimeout(updateHints, 100));
+})();
+
+/* ── Milestone chip client-side filtering ──
+   No full page reload. Updates column hx-get URLs and re-triggers HTMX fetches.
+   SSE connection stays alive. Instant response on rapid clicks. */
+var _currentMilestone = '{{ active_milestone or "" }}';
+var _filterDebounce = null;
+
+function filterMilestone(milestone, chipEl) {
+  // Debounce rapid clicks — only the last one fires
+  if (_filterDebounce) clearTimeout(_filterDebounce);
+  _currentMilestone = milestone;
+
+  // Immediate visual feedback — update chip active states
+  document.querySelectorAll('.milestone-chip:not(.milestone-chip--clear)').forEach(function(c) {
+    var isActive = c.dataset.milestone === milestone;
+    c.classList.toggle('milestone-chip--active', isActive);
+    var tag = c.querySelector('.ms-tag');
+    if (tag) {
+      tag.style.background = isActive ? '#fff' : '';
+      tag.style.color = isActive ? 'var(--color-brand)' : '';
+    }
+  });
+
+  // Show/hide × All chip and heading
+  var clearChip = document.getElementById('milestoneChipClear');
+  var heading = document.getElementById('milestoneHeading');
+  if (milestone) {
+    clearChip.style.display = '';
+    heading.style.display = '';
+    document.getElementById('milestoneHeadingLabel').textContent = milestone;
+    var activeChip = document.querySelector('.milestone-chip[data-milestone="' + milestone + '"]');
+    document.getElementById('milestoneHeadingName').textContent = activeChip ? activeChip.dataset.milestoneName : '';
+  } else {
+    clearChip.style.display = 'none';
+    heading.style.display = 'none';
+  }
+
+  // Debounce the data fetch by 80ms — just enough to catch rapid double-clicks
+  _filterDebounce = setTimeout(function() {
+    // Update URL without navigation
+    var url = milestone ? '?milestone=' + encodeURIComponent(milestone) : '?';
+    history.pushState(null, '', url);
+
+    // Update each column's hx-get URL and re-trigger fetch.
+    // Using direct fetch (not htmx.ajax) for the same reason refreshAllColumns
+    // does — HTMX 1.9 dedupes rapid ajax() calls without a source element,
+    // leaving most columns un-refreshed on a milestone switch.
+    var mqs = milestone ? '&milestone=' + encodeURIComponent(milestone) : '';
+    document.querySelectorAll('.col-body[id^="col-"]').forEach(function(col) {
+      var status = col.dataset.status;
+      var newUrl = '/api/v2/projects/{{ slug }}/tasks/board-column?status=' + status + mqs;
+      col.setAttribute('hx-get', newUrl);
+      fetch(newUrl, { credentials: 'same-origin', headers: { 'HX-Request': 'true' } })
+        .then(function(r) { return r.ok ? r.text() : null; })
+        .then(function(html) {
+          if (html !== null) {
+            col.innerHTML = html;
+            col.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+          }
+        })
+        .catch(function() {});
+    });
+
+    // Update column counts + re-init sortable after columns load
+    setTimeout(function() { updateColumnCounts(); initSortable(); }, 400);
+  }, 80);
+}
+
+// Handle browser back/forward
+window.addEventListener('popstate', function() {
+  var params = new URLSearchParams(window.location.search);
+  var ms = params.get('milestone') || '';
+  if (ms !== _currentMilestone) {
+    filterMilestone(ms, null);
+  }
+});
+
+/* ── SSE live updates ── */
+(function() {
+  // Skip SSE highlight for updates triggered by local drag (avoid double animation)
+  window._localDragTaskId = null;
+  window._localDragTimeout = null;
+
+  var evtSource = new EventSource('/api/v2/projects/{{ project.slug if project else active_project }}/events');
+
+  function _sseHighlight(taskId) {
+    var attempts = 0;
+    var finder = setInterval(function() {
+      var el = document.querySelector('[data-task-id="' + taskId + '"]');
+      attempts++;
+      if (el) {
+        clearInterval(finder);
+        // Scroll board horizontally to show the column
+        var board = document.getElementById('boardColumns');
+        var col = el.closest('.board-col');
+        if (board && col) {
+          var colLeft = col.offsetLeft - board.offsetLeft;
+          board.scrollTo({ left: colLeft - 20, behavior: 'smooth' });
+        }
+        // Scroll column body vertically to show the card
+        setTimeout(function() {
+          var colBody = el.closest('.col-body');
+          if (colBody) {
+            var cardTop = el.offsetTop - colBody.offsetTop;
+            colBody.scrollTo({ top: cardTop - 20, behavior: 'smooth' });
+          }
+        }, 500);
+        // Frosted glass multi-pulse — matches green/red water-drop cadence
+        el.style.position = 'relative';
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:absolute;inset:0;border-radius:inherit;backdrop-filter:blur(2px);pointer-events:none;z-index:5;opacity:0;';
+        el.appendChild(overlay);
+
+        var flowMs = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drag-flow-ms').trim()) || 2500;
+        var halfPulse = flowMs * 0.2;
+        var colour1 = 'rgba(245,158,11,0.25)';
+        var colour2 = 'rgba(245,158,11,0.15)';
+        var colour3 = 'rgba(245,158,11,0.08)';
+
+        // Pulse 1 — strong
+        overlay.style.transition = 'none';
+        overlay.style.background = colour1;
+        overlay.style.opacity = '1';
+        overlay.offsetHeight;
+        overlay.style.transition = 'opacity ' + halfPulse + 'ms ease';
+        overlay.style.opacity = '0';
+
+        // Pulse 2 — medium
+        setTimeout(function() {
+          overlay.style.transition = 'none';
+          overlay.style.background = colour2;
+          overlay.style.opacity = '1';
+          overlay.offsetHeight;
+          overlay.style.transition = 'opacity ' + halfPulse + 'ms ease';
+          overlay.style.opacity = '0';
+        }, halfPulse);
+
+        // Pulse 3 — soft
+        setTimeout(function() {
+          overlay.style.transition = 'none';
+          overlay.style.background = colour3;
+          overlay.style.opacity = '1';
+          overlay.offsetHeight;
+          overlay.style.transition = 'opacity ' + (halfPulse * 1.5) + 'ms ease';
+          overlay.style.opacity = '0';
+        }, halfPulse * 2);
+
+        // Cleanup
+        setTimeout(function() { overlay.remove(); }, halfPulse * 4);
+      }
+      if (attempts > 20) clearInterval(finder);
+    }, 100);
+  }
+
+  evtSource.addEventListener('task.created', function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      var col = document.getElementById('col-' + data.status);
+      if (col) {
+        htmx.ajax('GET', col.getAttribute('hx-get'), { target: '#col-' + data.status, swap: 'innerHTML' });
+        setTimeout(function() { updateColumnCounts(); initSortable(); }, 400);
+        // Only highlight if not triggered by local drag
+        if (data.task_id !== window._localDragTaskId) _sseHighlight(data.task_id);
+      }
+    } catch(err) {}
+  });
+
+  evtSource.addEventListener('task.updated', function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      // Skip column refresh + highlight if this was our own drag (already handled)
+      if (data.task_id === window._localDragTaskId) return;
+      var statuses = new Set([data.status]);
+      if (data.old_status && data.old_status !== data.status) statuses.add(data.old_status);
+      // VF-163: use direct fetch rather than htmx.ajax — HTMX 1.9 dedupes
+      // rapid ajax() calls without a source element, which matters here because
+      // blocker task.updated + downstream-auto-cleared task.updated fire within
+      // milliseconds of each other. htmx.ajax would drop the second call and
+      // the downstream card would keep its stale pill.
+      statuses.forEach(function(s) {
+        var col = document.getElementById('col-' + s);
+        if (!col) return;
+        var url = col.getAttribute('hx-get');
+        if (!url) return;
+        fetch(url, { credentials: 'same-origin', headers: { 'HX-Request': 'true' } })
+          .then(function(r) { return r.ok ? r.text() : null; })
+          .then(function(html) {
+            if (html !== null) {
+              col.innerHTML = html;
+              col.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+            }
+          })
+          .catch(function() {});
+      });
+      setTimeout(function() { updateColumnCounts(); initSortable(); }, 400);
+      _sseHighlight(data.task_id);
+    } catch(err) {}
+  });
+
+  // Reconnect on error
+  evtSource.onerror = function() {
+    evtSource.close();
+    setTimeout(function() {
+      var src = new EventSource('/api/v2/projects/{{ project.slug if project else active_project }}/events');
+      src.addEventListener('task.created', evtSource.listeners_task_created);
+      src.addEventListener('task.updated', evtSource.listeners_task_updated);
+    }, 3000);
+  };
+})();
+</script>
+
+{# VF-305: global task search pop-up. Ctrl/Cmd+K. #}
+{% include "ui/_search_popup.html" %}
+{% endblock %}

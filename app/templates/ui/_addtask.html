@@ -1,0 +1,91 @@
+{# ── Add Task MC card — shared partial ── #}
+{# Requires: milestones, active_milestone in template context #}
+
+{# ── Add Task — Mission Control card ── #}
+<div id="addTaskOverlay" class="fce-overlay" style="display:none;" onclick="handleAddTaskClickAway(event)">
+  <div id="addTaskCard" class="fce-card">
+    <div class="fce-topbar"></div>
+    <div class="fce-header" id="addTaskHeader">
+      <div class="fce-radar"><span class="fce-radar-dot"></span></div>
+      <div class="fce-header-text">
+        <h3 class="fce-title">New Task</h3>
+        <span class="fce-status-text">CREATE // mission control</span>
+      </div>
+      <button class="fce-close" onclick="closeAddTask()">×</button>
+    </div>
+
+    <div class="fce-body" style="padding:0;">
+      <div class="fce-columns">
+        {# LEFT: Title + Description #}
+        <div class="fce-col-main" style="padding:1.5rem;gap:1rem;overflow-y:auto;">
+          <div>
+            <span class="fce-label">// Title *</span>
+            <input type="text" id="addTaskTitle" class="fce-input" placeholder="Task title" autofocus style="font-size:1rem;font-weight:600;padding:0.5rem 0.75rem;"
+                   autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
+          </div>
+          <div>
+            <span class="fce-label">// Card Summary <span style="font-size:0.6rem;color:var(--color-text-subtle);font-weight:400;">(max 120 chars)</span></span>
+            <input type="text" id="addTaskShortDesc" class="fce-input" maxlength="120" placeholder="Brief summary for card face..." style="font-size:var(--text-xs);"
+                   autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
+          </div>
+          <div>
+            <span class="fce-label">// Description</span>
+            <textarea id="addTaskDesc" class="fce-textarea" rows="3" placeholder="> Optional description..."></textarea>
+          </div>
+          <div>
+            <span class="fce-label">// Initial Note <span style="font-size:0.6rem;color:var(--color-text-subtle);font-weight:400;">(supports @mentions)</span></span>
+            <textarea id="addTaskNote" class="fce-textarea" rows="2" placeholder="> Optional first note..."></textarea>
+          </div>
+        </div>
+
+        {# RIGHT: Properties #}
+        <div class="fce-col-props">
+          <div class="fce-prop"><span class="fce-label">Status</span>
+            <div class="fce-select-wrap"><select id="addTaskStatus" class="fce-select">
+              <option value="backlog" selected>Backlog</option><option value="ready">Ready</option>
+              <option value="in_progress">In Progress</option><option value="needs_review">Needs Review</option>
+              <option value="blocked">Blocked</option>
+            </select></div></div>
+          <div class="fce-prop"><span class="fce-label">Priority</span>
+            <div class="fce-select-wrap"><select id="addTaskPriority" class="fce-select">
+              <option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="critical">Critical</option>
+            </select></div></div>
+          <div class="fce-prop"><span class="fce-label">Assign To</span>
+            <div class="fce-select-wrap"><select id="addTaskOwner" class="fce-select">
+              <option value="agent" selected>Agent (unassigned)</option>
+              <option value="human">Human (unassigned)</option>
+            </select></div></div>
+          <div class="fce-prop"><span class="fce-label">Type</span>
+            <div class="fce-select-wrap"><select id="addTaskType" class="fce-select">
+              <option value="">None</option>
+              <option value="feature" selected>Feature</option>
+              <option value="bug">Bug</option>
+              <option value="chore">Chore</option>
+              <option value="spike">Spike</option>
+              <option value="verification">Verification</option>
+            </select></div></div>
+          <div class="fce-prop"><span class="fce-label">Milestone</span>
+            <div class="fce-select-wrap"><select id="addTaskMilestone" class="fce-select">
+              <option value="">None</option>
+              {% for m_label, m_name in milestones %}
+              <option value="{{ m_label }}" {% if active_milestone == m_label %}selected{% endif %}>{{ m_label }}</option>
+              {% endfor %}
+            </select></div></div>
+          <div class="fce-prop"><span class="fce-label">Dates</span>
+            <div class="fce-date-row">
+              <div><span class="fce-date-label">START</span><input type="date" id="addTaskStart" class="fce-input"
+                   autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
+              <div><span class="fce-date-label">DUE</span><input type="date" id="addTaskDue" class="fce-input"
+                   autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
+            </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="fce-footer">
+      <button class="fce-btn fce-btn-cancel" onclick="handleAddTaskCancel()">Cancel</button>
+      <button class="fce-btn fce-btn-save" id="addTaskSubmitBtn" onclick="submitAddTask()">Create</button>
+    </div>
+    <div class="fce-resize" id="addTaskResize"></div>
+  </div>
+</div>

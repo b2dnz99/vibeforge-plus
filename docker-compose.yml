@@ -1,0 +1,195 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    volumes:
+      - ./migrations/versions:/app/migrations/versions
+      - ./app:/app/app
+      - ./scripts:/app/scripts
+      # VF-353 IC-002 fix (round 2): mount the doc tree read-only so the
+      # OUR-block source file at 0-MD/0-Documentation/internal/customer-onboard
+      # -our-block.md is FS-readable from inside the container. Replaces the
+      # inline OUR_BLOCK_TEXT_INLINE Python constant in app/api/v2/onboard.py
+      # (kept as safety-net fallback). Read-only because nothing in the app
+      # container should be writing to 0-MD/.
+      - ./0-MD:/app/0-MD:ro
+      # Bootstrap park files — written by the install wizard API, read by
+      # subsequent verify/credential endpoints. Lives on the host so the CLI
+      # break-glass tool (scripts/bootstrap_forgejo.sh) can also read them.
+      - /opt/vibeforge/.bootstrap:/opt/vibeforge/.bootstrap:rw
+      # VF-322: cert info endpoint parses the PEM in-process via cryptography.
+      # VF-326: cert lifecycle wizard needs RW access to swap PEMs in place
+      # (preserves inode — see feedback_docker_file_mount_inode.md). Caddy
+      # + Health still get the same files read-only.
+      - ./ops/certs:/certs:rw
+      # VF-326: wizard rewrites the Caddyfile per-mode via Jinja template
+      # (ops/caddy/Caddyfile.j2). Both the template and the rendered file
+      # live here; caddy container sees the rendered file at /etc/caddy/.
+      - ./ops/caddy:/ops/caddy:rw
+
+  # VF-347: Playwright E2E test runner. Profile-gated so it does NOT start
+  # with default `docker compose up -d` — operator opts in:
+  #   docker compose --profile test run --rm playwright
+  # Uses Microsoft's official image which ships Chromium + Firefox + WebKit
+  # preinstalled. Tests target caddy:443 (full TLS path) for realism.
+  # Production image is unchanged — no playwright bloat in the app container.
+  playwright:
+    # Image version MUST match the playwright pip version in `command` —
+    # mismatch = "browser executable doesn't exist" because the image ships
+    # browsers compiled against its bundled playwright. If you bump one, bump both.
+    image: mcr.microsoft.com/playwright/python:v1.58.0-noble
+    profiles: [test]
+    env_file: .env
+    environment:
+      # Default target = app container directly. Caddy is intentionally
+      # skipped: its cert is bound to ${VIBEFORGE_HOSTNAME} (e.g. vibeforge-
+      # uat.hydra.net.au) and SNI from inside the docker network with hostname
+      # "caddy" causes ERR_SSL_PROTOCOL_ERROR. TLS path is covered by the cert
+      # selftest's wire-vs-disk-hash check; E2E only needs the UI surface.
+      # Override with VF_TEST_TARGET=https://vibeforge-uat.hydra.net.au for
+      # full-stack TLS verification (slower, loops out through firewall).
+      VF_TEST_TARGET: ${VF_TEST_TARGET:-http://app:8000}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./tests:/work/tests:rw
+    working_dir: /work
+    networks:
+      - default
+    # Default command runs the full E2E suite. Override at invocation:
+    #   docker compose --profile test run --rm playwright pytest tests/e2e/test_x.py -v
+    # playwright pinned to image version to avoid pip pulling a newer one
+    # that doesn't match the bundled browsers.
+    command: >
+      bash -c "pip install --quiet pytest pytest-playwright playwright==1.58.0 &&
+               pytest tests/e2e/ -v --tb=short"
+
+  health:
+    build: ./health
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "9090"
+    ports:
+      - "9090:9090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./health:/app
+      - ./health:/opt/vibeforge/health:ro
+      - ./backups:/opt/vibeforge/backups:ro
+      - /etc/crontab:/host/crontab:ro
+      - /var/spool/cron/crontabs:/host/crontabs:ro
+      # VF-246: certs mounted read-only so Health can parse expiry directly
+      # with `cryptography` (no docker-exec + openssl into the proxy container).
+      - ./ops/certs:/certs:ro
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vibeforge}
+      POSTGRES_USER: ${POSTGRES_USER:-vibeforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - vibeforge_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vibeforge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # VF-246 — replaced nginx with Caddy 2026-04-22. Former nginx config archived
+  # under ops/archive/nginx-2026-04-22/. Caddyfile at ops/caddy/Caddyfile is
+  # env-agnostic (hostname via VIBEFORGE_HOSTNAME); same file serves all envs.
+  caddy:
+    image: caddy:2-alpine
+    container_name: vibeforge-caddy-1
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # Admin API — localhost-only on host; 0.0.0.0:2019 inside container.
+      # Used by the VF-246 follow-up tickets (T1-T4) for proxy-admin UX.
+      - "127.0.0.1:2019:2019"
+    depends_on:
+      - app
+      - health
+      - forgejo
+      - vaultwarden
+    environment:
+      VIBEFORGE_HOSTNAME: ${VIBEFORGE_HOSTNAME:-localhost}
+    volumes:
+      - ./ops/caddy:/etc/caddy:ro
+      - ./ops/certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    labels:
+      com.vibeforge.role:    "proxy"
+      com.vibeforge.purpose: "TLS termination + reverse proxy (replaces nginx per VF-246)"
+      com.vibeforge.tier:    "infrastructure"
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:9
+    restart: unless-stopped
+    labels:
+      com.vibeforge.role: "git"
+      com.vibeforge.purpose: "Board-hosted git engine (VF-154/VF-232)"
+      com.vibeforge.tier: "infrastructure"
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__DOMAIN: ${VIBEFORGE_HOSTNAME:-localhost}
+      FORGEJO__server__ROOT_URL: https://${VIBEFORGE_HOSTNAME:-localhost}/git/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__START_SSH_SERVER: "false"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+      FORGEJO__database__DB_TYPE: sqlite3
+    volumes:
+      - forgejo_data:/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    labels:
+      com.vibeforge.role: "vault"
+      com.vibeforge.purpose: "Adjacent credential vault for users (VF-173/VF-233)"
+      com.vibeforge.tier: "infrastructure"
+    environment:
+      DOMAIN: https://${VIBEFORGE_HOSTNAME:-localhost}/vault
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "true"
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      WEBSOCKET_ENABLED: "true"
+    volumes:
+      - vaultwarden_data:/data
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/vault/alive || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vibeforge_db:
+  forgejo_data:
+  vaultwarden_data:
+  caddy_data:
+  caddy_config:

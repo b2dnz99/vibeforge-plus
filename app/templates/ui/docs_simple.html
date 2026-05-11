@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — VibeForge+{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title">{{ page_title }}</div>
+</div>
+{% endblock %}
+
+{% block content %}
+<style>
+  .docs-simple {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 2rem 2.5rem;
+    max-width: 800px;
+  }
+  .docs-simple h1 {
+    font-size: 1.5rem;
+    color: var(--color-text);
+    margin: 1.5rem 0 0.5rem;
+    font-weight: 700;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0.4rem;
+  }
+  .docs-simple h1:first-child { margin-top: 0; }
+  .docs-simple h2 {
+    font-size: 1.05rem;
+    color: hsl(var(--hue) 68% 55%);
+    margin: 1.5rem 0 0.5rem;
+    font-weight: 600;
+  }
+  .docs-simple p {
+    margin: 0.6rem 0;
+    color: var(--color-text);
+    font-size: 0.85rem;
+    line-height: 1.65;
+  }
+  .docs-simple ul, .docs-simple ol {
+    margin: 0.6rem 0 0.6rem 1.5rem;
+    color: var(--color-text);
+    font-size: 0.85rem;
+    line-height: 1.65;
+  }
+  .docs-simple li { margin: 0.2rem 0; }
+  .docs-simple a { color: hsl(var(--hue) 68% 55%); text-decoration: none; }
+  .docs-simple a:hover { text-decoration: underline; }
+  .docs-simple strong { color: var(--color-text); }
+  .docs-simple em { color: var(--color-text-muted); font-style: italic; }
+  .docs-simple code {
+    font-family: var(--font-mono);
+    background: var(--color-surface-sub);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    color: hsl(var(--hue) 68% 55%);
+  }
+</style>
+
+<div class="docs-simple">
+  {{ body | safe }}
+</div>
+{% endblock %}

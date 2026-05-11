@@ -1,0 +1,1215 @@
+{% extends "base.html" %}
+
+{% block title %}Mission Control — VibeForge+{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title" style="display:flex;align-items:center;gap:var(--space-2);">
+    <div class="mc-radar"></div>
+    <span style="color:hsl(var(--hue) 68% 55%);font-weight:700;">Mission</span> Control
+  </div>
+  <div class="topbar-actions">
+    <a class="btn btn-primary" href="/ui/onboard" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);text-decoration:none;display:inline-flex;align-items:center;gap:4px;" title="Guided wizard: project + agent + onboard ceremony in one flow">🪄 New Project Wizard</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{# ── Stats Bar ── #}
+<div class="mc-stats-bar">
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Projects</div>
+    <div class="mc-stat-value mc-stat-accent">{{ global_stats.projects }}</div>
+  </div>
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Active Tasks</div>
+    <div class="mc-stat-value mc-stat-green">{{ global_stats.active_tasks }}</div>
+  </div>
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Agents Online</div>
+    <div class="mc-stat-value mc-stat-green">{{ agents | length }}</div>
+  </div>
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Total Tasks</div>
+    <div class="mc-stat-value">{{ global_stats.total_tasks }}</div>
+  </div>
+  <a href="/ui/health" class="mc-stat-card" id="homeHealthCard" style="text-decoration:none;color:inherit;cursor:pointer;border-top:2px solid var(--color-done);">
+    <div class="mc-stat-label mono"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--color-done);margin-right:4px;"></span> System</div>
+    <div class="mc-stat-value mc-stat-green" style="font-size:1rem;" id="homeHcValue">...</div>
+    <div style="font-family:var(--font-mono);font-size:0.5625rem;color:var(--color-text-muted);margin-top:1px;" id="homeHcSub"></div>
+  </a>
+</div>
+
+{# ── Health stat card (5th in row) ── #}
+
+{# ── Two-panel: project grid + activity timeline ── #}
+<div class="mc-panels">
+
+  {# Center: Project Cards #}
+  <div class="mc-center">
+    <div class="mc-section-label mono"><span class="mc-dot-accent"></span>Active Projects</div>
+    <div class="mc-project-grid" id="activeProjectGrid">
+      {% for p in all_projects if p.status == 'active' %}
+      {% set stats = project_stats.get(p.id, {}) %}
+      {% set milestones = project_milestones.get(p.id, []) %}
+      {% set members = project_members.get(p.id, []) %}
+      {% set ms_done = milestones | selectattr('status', 'equalto', 'done') | list | length %}
+      {% set ms_total = milestones | length %}
+
+      <div class="mc-project-card{% if p.status == 'archived' %} mc-project-archived{% endif %}{% if p.status == 'completed' %} mc-project-completed{% endif %}{% if p._pinned %} mc-project-pinned{% endif %}"
+           data-slug="{{ p.slug }}" onclick="openProjectDrawer('{{ p.slug }}')">
+        <span class="mc-card-pin {% if p._pinned %}pinned{% endif %}" title="{% if p._pinned %}Unpin{% else %}Pin{% endif %}" onclick="event.stopPropagation(); toggleCardPin('{{ p.slug }}', {{ 'true' if p._pinned else 'false' }})">&#128204;</span>
+        <span class="mc-card-grip" title="Drag to reorder">&#x2630;</span>
+        <div class="mc-card-top">
+          <span class="mc-prj-badge mono">PRJ{{ '%05d' | format(p.project_number) if p.project_number else '-----' }}</span>
+          <span class="mc-prj-prefix mono">{{ p.prefix or p.slug[:3] | upper }}</span>
+          <span class="mc-status-badge mc-status-{{ p.status }}">{{ p.status }}</span>
+          {% if stats.pct == 100 and stats.total > 0 and p.status == 'active' %}<span class="mc-ready-badge">Ready to Complete</span>{% endif %}
+        </div>
+
+        <div class="mc-card-name">{{ p.name }}</div>
+
+        {% if p.resume_summary %}
+        <div class="mc-card-resume">{{ p.resume_summary }}</div>
+        {% elif p.description %}
+        <div class="mc-card-resume">{{ p.description }}</div>
+        {% endif %}
+
+        {# Task progress bar #}
+        <div class="mc-task-bar">
+          <div class="mc-bar">
+            {% if stats.total > 0 %}
+            <div class="mc-bar-fill mc-bar-done" style="flex:{{ stats.resolved }};"></div>
+            <div class="mc-bar-fill mc-bar-active" style="flex:{{ stats.active }};"></div>
+            <div class="mc-bar-fill mc-bar-rest" style="flex:{{ stats.total - stats.resolved - stats.active }};"></div>
+            {% endif %}
+          </div>
+          <span class="mc-bar-count mono">{{ stats.resolved | default(0) }}/{{ stats.total | default(0) }}</span>
+        </div>
+
+        {# Meta: milestones + members #}
+        <div class="mc-card-meta">
+          {% if ms_total > 0 %}
+          <span class="mc-meta-item" title="{{ ms_done }}/{{ ms_total }} milestones done">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            {{ ms_done }}/{{ ms_total }}
+          </span>
+          {% endif %}
+          <span class="mc-meta-item">
+            {% for m in members[:3] %}
+            <span class="mc-member-dot {% if m.type == 'agent' %}mc-member-agent{% else %}mc-member-human{% endif %}" title="{{ m.name }} ({{ m.role }})">
+              {% if m.type == 'agent' %}&#129302;{% else %}{{ m.initials }}{% endif %}
+            </span>
+            {% endfor %}
+            {% if members | length > 3 %}
+            <span class="mc-member-dot mc-member-more">+{{ members | length - 3 }}</span>
+            {% endif %}
+          </span>
+        </div>
+
+        {# Actions — stop propagation so they don't open drawer #}
+        <div class="mc-card-actions">
+          <a href="/ui/projects/{{ p.slug }}/board" class="mc-action-btn" onclick="event.stopPropagation()">Board</a>
+          <a href="/ui/projects/{{ p.slug }}/gantt" class="mc-action-btn" onclick="event.stopPropagation()">Gantt</a>
+        </div>
+      </div>
+      {% else %}
+      {% endfor %}
+      {% if all_projects | selectattr('status', 'equalto', 'active') | list | length == 0 %}
+      <div style="grid-column:1/-1;color:var(--color-text-muted);text-align:center;padding:var(--space-6);">
+        No active projects. Click + New Project to get started.
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Completed / Archived — collapsed by default ── #}
+    {% set inactive = all_projects | rejectattr('status', 'equalto', 'active') | list %}
+    {% if inactive %}
+    <div class="mc-inactive-divider" onclick="var el=document.getElementById('inactiveGrid');var arr=this.querySelector('.mc-divider-arrow');var open=el.style.display!=='none';el.style.display=open?'none':'';arr.classList.toggle('mc-divider-open',!open);localStorage.setItem('mc-inactive-open',!open?'1':'0');">
+      <span class="mc-divider-arrow">&#9654;</span>
+      <span class="mc-divider-label mono">Completed & Archived</span>
+      <span class="mc-divider-count mono">{{ inactive | length }}</span>
+    </div>
+    <div class="mc-project-grid" id="inactiveGrid" style="display:none;">
+      {% for p in inactive %}
+      {% set stats = project_stats.get(p.id, {}) %}
+      {% set milestones = project_milestones.get(p.id, []) %}
+      {% set members = project_members.get(p.id, []) %}
+      {% set ms_done = milestones | selectattr('status', 'equalto', 'done') | list | length %}
+      {% set ms_total = milestones | length %}
+
+      <div class="mc-project-card{% if p.status == 'archived' %} mc-project-archived{% endif %}{% if p.status == 'completed' %} mc-project-completed{% endif %}{% if p._pinned %} mc-project-pinned{% endif %}"
+           data-slug="{{ p.slug }}" onclick="openProjectDrawer('{{ p.slug }}')">
+        <div class="mc-card-top">
+          <span class="mc-prj-badge mono">{{ 'PRJ%05d' | format(p.project_number) if p.project_number else p.slug }}</span>
+          <span class="mc-prj-prefix mono">{{ p.prefix or p.slug[:3] | upper }}</span>
+          <span class="mc-status-badge mc-status-{{ p.status }}">{{ p.status }}</span>
+        </div>
+        <div class="mc-card-name">{{ p.name }}</div>
+        {% if p.resume_summary %}
+        <div class="mc-card-resume">{{ p.resume_summary }}</div>
+        {% endif %}
+        <div class="mc-task-bar">
+          <div class="mc-bar">
+            {% if stats.total > 0 %}
+            <div class="mc-bar-fill mc-bar-done" style="flex:{{ stats.resolved }};"></div>
+            <div class="mc-bar-fill mc-bar-active" style="flex:{{ stats.active }};"></div>
+            <div class="mc-bar-fill mc-bar-rest" style="flex:{{ stats.total - stats.resolved - stats.active }};"></div>
+            {% endif %}
+          </div>
+          <span class="mc-bar-count mono">{{ stats.resolved | default(0) }}/{{ stats.total | default(0) }}</span>
+        </div>
+        <div class="mc-card-actions">
+          <a href="/ui/projects/{{ p.slug }}/board" class="mc-action-btn" onclick="event.stopPropagation()">Board</a>
+          <a href="/ui/projects/{{ p.slug }}/gantt" class="mc-action-btn" onclick="event.stopPropagation()">Gantt</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# Right: Activity Timeline #}
+  <div class="mc-timeline-panel">
+    <div class="mc-section-label mono"><span class="mc-dot-accent" style="background:var(--color-done);"></span>Activity</div>
+    <div class="mc-timeline">
+      {% for evt in recent_activity %}
+      <div class="mc-tl-item {% if evt.actor_type == 'agent' %}mc-tl-agent{% elif evt.actor_type == 'system' %}mc-tl-system{% endif %}">
+        <div class="mc-tl-time mono" data-iso="{{ evt.created_at.isoformat() if evt.created_at else '' }}">{{ evt.created_at.strftime('%d %b, %H:%M') if evt.created_at else '' }}</div>
+        <div class="mc-tl-text">
+          <strong>{% if evt.actor_type == 'agent' %}&#129302; {{ evt._actor_name }}{% elif evt.actor_type == 'system' %}&#9881; {{ evt._actor_name }}{% else %}&#128100; {{ evt._actor_name }}{% endif %}</strong>
+          {{ evt._summary }}
+        </div>
+      </div>
+      {% else %}
+      <div style="color:var(--color-text-muted);font-size:var(--text-xs);padding:var(--space-2) 0;">No activity yet</div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block modals %}
+{% include "ui/_archive_animation.html" %}
+{# ── PC-03 Project Detail Drawer ── #}
+<div id="projectDrawerOverlay" class="pcd-overlay" style="display:none;" onclick="if(event.target===this)closeProjectDrawer()">
+  <div class="pcd-card">
+    <div class="pcd-neon-bar"></div>
+
+    {# Radar header #}
+    <div class="pcd-header">
+      <span class="pcd-badge mono" id="pcdBadge">PRJ00000</span>
+      <span class="pcd-prefix mono" id="pcdPrefix">VF</span>
+      <span class="pcd-status" id="pcdStatus">active</span>
+      <div style="flex:1;"></div>
+      <button class="pcd-close" onclick="closeProjectDrawer()">&times;</button>
+    </div>
+
+    {# Scrollable body #}
+    <div class="pcd-body">
+      {# Name (pencil editable) + Resume #}
+      <div class="pcd-top">
+        <div class="pcd-name-row">
+          <input class="pcd-name" id="pcdName" value="" placeholder="Project name" readonly />
+          <button class="pcd-pencil" id="pcdPencil" onclick="enableNameEdit()" title="Rename project">&#9998;</button>
+        </div>
+        <textarea class="pcd-resume" id="pcdResume" rows="3" placeholder="Resume summary..."></textarea>
+      </div>
+
+      {# Triple grid: Tasks / Milestones / Members #}
+      <div class="pcd-triple">
+        {# Tasks panel #}
+        <div class="pcd-panel">
+          <div class="pcd-label">Tasks</div>
+          <div class="pcd-stat-big" id="pcdTaskPct">0%</div>
+          <div class="pcd-stat-sub" id="pcdTaskSub">0 of 0 complete</div>
+          <div class="pcd-task-vis" id="pcdTaskVis"></div>
+          <div id="pcdTaskBreakdown"></div>
+        </div>
+
+        {# Milestones panel #}
+        <div class="pcd-panel">
+          <div class="pcd-label">Milestones</div>
+          <div id="pcdMsRing" style="text-align:center;"></div>
+          <div id="pcdMsList" class="pcd-ms-list"></div>
+        </div>
+
+        {# Members panel (VF-286 — full list with add/remove/role-change) #}
+        <div class="pcd-panel">
+          <div class="pcd-label" style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+            <span>Members</span>
+            <button class="pcd-btn" id="pcdBtnAddMember" onclick="pcdAddMember()"
+                    style="font-size:0.55rem;padding:0.2rem 0.65rem;">+ Add</button>
+          </div>
+          <div id="pcdMembers" class="pcd-member-stack" style="max-height:260px;overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      {# Paths (read-only) #}
+      <div>
+        <div class="pcd-label">Paths & Repository</div>
+        <div class="pcd-paths">
+          <div class="pcd-path-group">
+            <span class="pcd-path-label">Root Path</span>
+            <input class="pcd-path-input" id="pcdRootPath" readonly />
+          </div>
+          <div class="pcd-path-group">
+            <span class="pcd-path-label">Docs Path</span>
+            <input class="pcd-path-input" id="pcdDocsPath" readonly />
+          </div>
+        </div>
+        <div style="margin-top:var(--space-2);">
+          <span class="pcd-path-label">Git</span>
+          <input class="pcd-path-input" id="pcdGitUrl" readonly style="margin-top:2px;" />
+        </div>
+      </div>
+
+      {# Lifecycle Log (read-only, shown if entries exist) #}
+      <div id="pcdLifecycleSection" style="display:none;">
+        <div class="pcd-label">Lifecycle History</div>
+        <div id="pcdLifecycleLog" class="pcd-lifecycle-log"></div>
+      </div>
+    </div>
+
+    {# Footer #}
+    <div class="pcd-footer">
+      <div class="pcd-footer-actions">
+        <a class="pcd-btn" id="pcdBtnBoard" href="#">Board</a>
+        <a class="pcd-btn" id="pcdBtnGantt" href="#">Gantt</a>
+        {# VF-380: resume onboard wizard while onboard is not fully complete. JS toggles visibility after onboard-state fetch. #}
+        <a class="pcd-btn" id="pcdBtnResumeOnboard" href="#" style="display:none;background:hsl(var(--hue) 68% 55% / 0.15);border-color:hsl(var(--hue) 68% 55%);color:hsl(var(--hue) 68% 70%);font-weight:600;">🪄 Resume Onboarding</a>
+        <button class="pcd-btn" id="pcdBtnPin" onclick="togglePin()">&#128204; Pin</button>
+        <button class="pcd-btn" id="pcdBtnComplete" onclick="startComplete()" style="display:none;background:var(--color-done);border-color:var(--color-done);color:#fff;font-weight:600;">Complete Project</button>
+        <button class="pcd-btn" id="pcdBtnArchive" onclick="startArchive()" style="color:var(--color-needs-review);">Archive</button>
+      </div>
+      <button class="pcd-btn pcd-btn-save" onclick="saveProjectDrawer()">Save</button>
+    </div>
+  </div>
+</div>
+
+{# Legacy "New Project Drawer" markup removed — superseded by /ui/onboard wizard. See VF-380 / VF-385 graduation pass. #}
+
+{# ── Archive Summary Dialog ── #}
+<div id="archiveOverlay" class="pcd-overlay" style="display:none;" onclick="if(event.target===this)document.getElementById('archiveOverlay').style.display='none'">
+  <div class="pcd-card" style="max-width:500px;">
+    <div class="pcd-neon-bar" style="background:linear-gradient(90deg, var(--color-needs-review), var(--color-blocked), var(--color-needs-review));"></div>
+    <div class="pcd-header">
+      <span class="pcd-badge mono" style="background:rgba(245,158,11,0.15);color:var(--color-needs-review);">ARCHIVE PROJECT</span>
+      <div style="flex:1;"></div>
+      <button class="pcd-close" onclick="document.getElementById('archiveOverlay').style.display='none'">&times;</button>
+    </div>
+    <div class="pcd-body" id="archiveBody">
+      <div id="archiveSummary"></div>
+      <div>
+        <div class="pcd-label">Reason Type</div>
+        <select id="archiveType" class="pcd-path-input" style="color:var(--color-text);cursor:pointer;">
+          <option value="completed">Completed</option>
+          <option value="abandoned">Abandoned</option>
+        </select>
+      </div>
+      <div>
+        <div class="pcd-label">Reason *</div>
+        <textarea class="pcd-resume" id="archiveReason" rows="3" placeholder="Why is this project being archived?"></textarea>
+      </div>
+    </div>
+    <div class="pcd-footer">
+      <button class="pcd-btn" onclick="document.getElementById('archiveOverlay').style.display='none'">Cancel</button>
+      <button class="pcd-btn" id="archiveConfirmBtn" style="background:var(--color-needs-review);border-color:var(--color-needs-review);color:#fff;font-weight:600;" onclick="confirmArchive()">Archive</button>
+    </div>
+  </div>
+</div>
+
+{# ── Complete Project Dialog ── #}
+<div id="completeOverlay" class="pcd-overlay" style="display:none;" onclick="if(event.target===this)document.getElementById('completeOverlay').style.display='none'">
+  <div class="pcd-card" style="max-width:500px;">
+    <div class="pcd-neon-bar" style="background:linear-gradient(90deg, var(--color-done), hsl(var(--hue) 68% 55%), var(--color-done));"></div>
+    <div class="pcd-header">
+      <span class="pcd-badge mono" style="background:rgba(16,185,129,0.15);color:var(--color-done);">COMPLETE PROJECT</span>
+      <div style="flex:1;"></div>
+      <button class="pcd-close" onclick="document.getElementById('completeOverlay').style.display='none'">&times;</button>
+    </div>
+    <div class="pcd-body">
+      <div id="completeSummaryStats" style="font-size:var(--text-xs);color:var(--color-text-muted);line-height:1.6;"></div>
+      <div>
+        <div class="pcd-label">Completion Summary *</div>
+        <textarea class="pcd-resume" id="completeSummary" rows="4" placeholder="What was achieved? Key outcomes, lessons learned..."></textarea>
+      </div>
+    </div>
+    <div class="pcd-footer">
+      <button class="pcd-btn" onclick="document.getElementById('completeOverlay').style.display='none'">Cancel</button>
+      <button class="pcd-btn" style="background:var(--color-done);border-color:var(--color-done);color:#fff;font-weight:600;" onclick="confirmComplete()">Complete Project</button>
+    </div>
+  </div>
+</div>
+
+{# ── Rename Reason Dialog ── #}
+<div id="renameOverlay" class="pcd-overlay" style="display:none;" onclick="if(event.target===this)cancelRename()">
+  <div class="pcd-card" style="max-width:420px;">
+    <div class="pcd-neon-bar"></div>
+    <div class="pcd-header">
+      <span class="pcd-badge mono">RENAME PROJECT</span>
+      <div style="flex:1;"></div>
+      <button class="pcd-close" onclick="cancelRename()">&times;</button>
+    </div>
+    <div class="pcd-body">
+      <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-2);">
+        Renaming from <strong id="renameFrom"></strong> to <strong id="renameTo"></strong>
+      </div>
+      <div>
+        <div class="pcd-label">Reason for rename <span style="color:var(--color-text-muted);font-weight:400;font-size:var(--text-xs);">(min 10 chars; recorded on the activity log)</span></div>
+        <textarea class="pcd-resume" id="renameReason" rows="2" placeholder="Why is this being renamed? (e.g. 'rebranded after company merge')" minlength="10"></textarea>
+      </div>
+    </div>
+    <div class="pcd-footer">
+      <button class="pcd-btn" onclick="cancelRename()">Cancel</button>
+      <button class="pcd-btn pcd-btn-save" onclick="confirmRename()">Confirm Rename</button>
+    </div>
+  </div>
+</div>
+{% include "ui/_member_picker.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Restore inactive section state ──
+(function() {
+  if (localStorage.getItem('mc-inactive-open') === '1') {
+    var el = document.getElementById('inactiveGrid');
+    var arr = document.querySelector('.mc-divider-arrow');
+    if (el) el.style.display = '';
+    if (arr) arr.classList.add('mc-divider-open');
+  }
+})();
+
+// ── Toggle pin from card ──
+function toggleCardPin(slug, isPinned) {
+  fetch('/api/v2/projects/' + slug + '/pin', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({pinned: !isPinned}),
+  }).then(function() { window.location.reload(); });
+}
+
+// ── Home health stat card ──
+(function() {
+  function pollHomeHealth() {
+    fetch('/api/health/summary')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var val = document.getElementById('homeHcValue');
+        var sub = document.getElementById('homeHcSub');
+        var card = document.getElementById('homeHealthCard');
+        if (d.errors && d.errors.length > 0) {
+          val.textContent = d.errors.length + ' Error' + (d.errors.length > 1 ? 's' : '');
+          val.style.color = 'var(--color-blocked)';
+          card.style.borderTopColor = 'var(--color-blocked)';
+        } else {
+          val.textContent = 'Healthy';
+          val.style.color = '';
+          card.style.borderTopColor = '';
+        }
+        sub.textContent = d.containers + ' containers · CPU ' + d.cpu_percent + '%';
+      })
+      .catch(function() {
+        document.getElementById('homeHcValue').textContent = 'Offline';
+        document.getElementById('homeHcValue').style.color = 'var(--color-text-muted)';
+        document.getElementById('homeHcSub').textContent = '';
+      });
+  }
+  pollHomeHealth();
+  setInterval(pollHomeHealth, 15000);
+})();
+
+// Localise timeline timestamps
+document.querySelectorAll('.mc-tl-time[data-iso]').forEach(function(el) {
+  var iso = el.dataset.iso;
+  if (iso) el.textContent = vfDateTime(iso);
+});
+
+// ── Project Drawer (PC-03) ──
+
+var _pcdSlug = null;
+var _pcdMyRole = null;
+var _pcdAdminContacts = [];
+
+/* MC-style alert overlay — replaces native browser alerts */
+function _mcInfo(title, message) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:99999';
+  var card = document.createElement('div');
+  card.style.cssText = 'background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:1.5rem 2rem;max-width:480px';
+  card.innerHTML = '<div style="font-size:0.9rem;font-weight:700;color:var(--color-text);margin-bottom:0.5rem">' + title + '</div>' +
+    '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:1.25rem;line-height:1.5">' + message + '</div>' +
+    '<div style="display:flex;justify-content:flex-end"><button id="_mcInfoOk" style="font-family:var(--font-mono);font-size:0.65rem;padding:0.4rem 1.2rem;border-radius:6px;border:1px solid hsl(var(--hue) 68% 55% / 0.3);background:hsl(var(--hue) 68% 55% / 0.15);color:hsl(var(--hue) 68% 55%);cursor:pointer;text-transform:uppercase;letter-spacing:0.05em">OK</button></div>';
+  ov.appendChild(card);
+  ov.querySelector('#_mcInfoOk').addEventListener('click', function() { ov.remove(); });
+  ov.addEventListener('click', function(e) { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+}
+
+/* GATE: Disable an admin-only button when caller lacks role; show actionable message on click */
+function _gateAdminButton(btn, action) {
+  if (_pcdMyRole === 'su' || _pcdMyRole === 'owner' || _pcdMyRole === 'admin') {
+    btn.classList.remove('pcd-locked');
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    return false;  // not gated
+  }
+  btn.classList.add('pcd-locked');
+  btn.style.opacity = '0.55';
+  btn.style.cursor = 'not-allowed';
+  btn.innerHTML = '&#128274; ' + (btn.dataset.label || btn.textContent.trim());
+  btn.dataset.label = btn.dataset.label || btn.textContent.replace(/^[\s\u{1F512}]+/u, '').trim();
+  btn.onclick = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var asks = (_pcdAdminContacts && _pcdAdminContacts.length > 0)
+      ? 'Ask <strong>' + _pcdAdminContacts.join('</strong> or <strong>') + '</strong> to ' + action + ' this project, or request admin role from a Super User.'
+      : 'Only the project owner or a project admin can ' + action + ' this project. Request admin role from a Super User.';
+    _mcInfo('Project admin role required', asks);
+  };
+  return true;  // gated
+}
+var _pcdOrigName = '';
+var _pcdPinned = false;
+
+function openProjectDrawer(slug) {
+  _pcdSlug = slug;
+  document.getElementById('projectDrawerOverlay').style.display = 'flex';
+  document.getElementById('pcdBadge').textContent = '...';
+  document.getElementById('pcdName').readOnly = true;
+  document.getElementById('pcdPencil').style.display = '';
+
+  fetch('/api/v2/projects/' + slug + '/dashboard')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      // Header
+      document.getElementById('pcdBadge').textContent = d.full_id || d.slug;
+      document.getElementById('pcdPrefix').textContent = d.prefix || '';
+      var statusEl = document.getElementById('pcdStatus');
+      statusEl.textContent = d.status;
+      statusEl.className = 'pcd-status pcd-status-' + d.status;
+
+      // Name + Resume
+      document.getElementById('pcdName').value = d.name;
+      _pcdOrigName = d.name;
+      document.getElementById('pcdResume').value = d.resume_summary;
+
+      // Caller role + admin contacts (for UI gating)
+      _pcdMyRole = d.my_role || null;
+      _pcdAdminContacts = d.admin_contacts || [];
+
+      // Pin state
+      _pcdPinned = d.pinned;
+      document.getElementById('pcdBtnPin').innerHTML = d.pinned ? '&#128204; Unpin' : '&#128204; Pin';
+
+      // Footer buttons based on status
+      var archBtn = document.getElementById('pcdBtnArchive');
+      var completeBtn = document.getElementById('pcdBtnComplete');
+      if (d.status === 'archived') {
+        archBtn.textContent = 'Reopen';
+        archBtn.style.color = 'var(--color-done)';
+        archBtn.onclick = function() { startReopen(); };
+        completeBtn.style.display = 'none';
+      } else if (d.status === 'completed') {
+        archBtn.textContent = 'Archive';
+        archBtn.style.color = 'var(--color-needs-review)';
+        archBtn.onclick = function() { startArchive(); };
+        // Add reopen button — reuse complete button slot
+        completeBtn.style.display = '';
+        completeBtn.textContent = 'Reopen';
+        completeBtn.style.background = 'var(--color-done)';
+        completeBtn.style.borderColor = 'var(--color-done)';
+        completeBtn.onclick = function() { startReopen(); };
+      } else {
+        archBtn.textContent = 'Archive';
+        archBtn.style.color = 'var(--color-needs-review)';
+        archBtn.onclick = function() { startArchive(); };
+        // Show Complete button only when ready
+        if (d.tasks.ready_to_complete) {
+          completeBtn.style.display = '';
+        } else {
+          completeBtn.style.display = 'none';
+        }
+      }
+
+      // Nav links
+      document.getElementById('pcdBtnBoard').href = '/ui/projects/' + slug + '/board';
+      document.getElementById('pcdBtnGantt').href = '/ui/projects/' + slug + '/gantt';
+
+      // VF-380: surface "Resume Onboarding" while onboard isn't fully complete.
+      // VF-382: also hide once the operator-tunable post-completion expiry window passes
+      //         (server-injected wizard_expiry_seconds; see /admin/portal/.../agent-telemetry-and-drift).
+      // Independent fetch — drawer dashboard doesn't carry onboard_state.
+      var resumeBtn = document.getElementById('pcdBtnResumeOnboard');
+      if (resumeBtn) {
+        resumeBtn.style.display = 'none';
+        var wizardExpirySecs = {{ wizard_expiry_seconds | default(86400) }};
+        fetch('/api/v2/projects/' + slug + '/onboard-state', { credentials: 'same-origin' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(os) {
+            if (!os) return;
+            // Active onboard (no completed_at yet) — always show resume.
+            // Completed onboard — show only within wizard_expiry_seconds of completed_at.
+            var state = os.onboard_state || {};
+            var completedAt = state.completed_at;
+            var expired = false;
+            if (completedAt) {
+              try {
+                var ageSec = (Date.now() - new Date(completedAt).getTime()) / 1000;
+                expired = ageSec > wizardExpirySecs;
+              } catch(e) { /* fall through, show button */ }
+            }
+            if (!os.fully_complete && !expired) {
+              resumeBtn.href = '/ui/onboard/' + slug;
+              resumeBtn.style.display = '';
+            }
+          })
+          .catch(function() { /* drawer still works without resume affordance */ });
+      }
+
+      // Tasks panel
+      var t = d.tasks;
+      document.getElementById('pcdTaskPct').textContent = t.pct + '%';
+      document.getElementById('pcdTaskPct').style.color = t.ready_to_complete ? 'var(--color-done)' : '';
+      document.getElementById('pcdTaskSub').textContent = t.resolved + ' of ' + t.total + ' resolved' + (t.cancelled > 0 ? ' (' + t.cancelled + ' cancelled)' : '');
+      var vis = document.getElementById('pcdTaskVis');
+      var open = t.total - t.resolved;
+      vis.innerHTML = t.total > 0
+        ? '<div class="pcd-vis-seg" style="flex:' + t.done + ';background:var(--color-done);"></div>' +
+          '<div class="pcd-vis-seg" style="flex:' + t.cancelled + ';background:var(--color-cancelled);"></div>' +
+          '<div class="pcd-vis-seg" style="flex:' + t.in_progress + ';background:hsl(var(--hue) 68% 55%);"></div>' +
+          '<div class="pcd-vis-seg" style="flex:' + (open - t.in_progress) + ';background:rgba(100,116,139,0.2);"></div>'
+        : '';
+      document.getElementById('pcdTaskBreakdown').innerHTML =
+        _taskStat('var(--color-done)', t.done, 'done') +
+        _taskStat('var(--color-cancelled)', t.cancelled, 'cancelled') +
+        _taskStat('hsl(var(--hue) 68% 55%)', t.in_progress, 'in progress') +
+        _taskStat('var(--color-needs-review)', t.backlog, 'backlog') +
+        _taskStat('var(--color-blocked)', t.blocked, 'blocked');
+
+      // Milestones — SVG ring + list
+      var ms = d.milestones;
+      var msDone = ms.filter(function(m) { return m.status === 'done'; }).length;
+      var msTotal = ms.length;
+      var circ = 2 * Math.PI * 20;
+      var off = msTotal > 0 ? circ - (msDone / msTotal) * circ : circ;
+      document.getElementById('pcdMsRing').innerHTML =
+        '<svg width="48" height="48" viewBox="0 0 48 48">' +
+        '<circle cx="24" cy="24" r="20" fill="none" stroke="rgba(100,116,139,.2)" stroke-width="4"/>' +
+        '<circle cx="24" cy="24" r="20" fill="none" stroke="var(--color-done)" stroke-width="4" stroke-linecap="round" ' +
+        'stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 24 24)"/>' +
+        '<text x="24" y="26" text-anchor="middle" fill="var(--color-text)" font-size="11" font-weight="700" font-family="JetBrains Mono,monospace">' +
+        msDone + '/' + msTotal + '</text></svg>';
+      document.getElementById('pcdMsList').innerHTML = ms.map(function(m) {
+        var dotCls = m.status === 'done' ? 'pcd-ms-done' : 'pcd-ms-open';
+        var ct = m.status === 'done' ? 'done' : m.done + '/' + m.total;
+        return '<div class="pcd-ms-row"><span class="pcd-ms-dot ' + dotCls + '"></span><span class="pcd-ms-text">' + m.name + '</span><span class="pcd-ms-count mono">' + ct + '</span></div>';
+      }).join('');
+
+      // Members (VF-286 — full list with add/remove/role-change)
+      _pcdOwnerId = d.owner_id || null;
+      _pcdMembersData = d.members || [];
+      pcdRenderMembers();
+      _gateAdminButton(document.getElementById('pcdBtnAddMember'), 'manage members on');
+
+      // Paths
+      document.getElementById('pcdRootPath').value = d.root_path || '\u2014';
+      document.getElementById('pcdDocsPath').value = d.docs_path || '\u2014';
+      document.getElementById('pcdGitUrl').value = d.project_url || '\u2014';
+
+      // Lifecycle log
+      var logSection = document.getElementById('pcdLifecycleSection');
+      var logEl = document.getElementById('pcdLifecycleLog');
+      if (d.lifecycle_log && d.lifecycle_log.length > 0) {
+        logSection.style.display = '';
+        logEl.innerHTML = d.lifecycle_log.slice().reverse().map(function(e) {
+          // VF-355: post-fix, e.actor is the operator's display_name (e.g. "Parvez Khan").
+          // Pre-fix entries (the literal string "human") fall back to "Human" rather
+          // than "Unknown" — the action was human-actor, just unattributed historically.
+          var actor = !e.actor ? 'Unknown' : (e.actor === 'human' ? 'Human' : e.actor);
+          return '<div class="pcd-lc-entry"><span class="pcd-lc-action mono">' + e.action + '</span>' +
+                 '<span class="pcd-lc-reason">' + e.reason + '</span>' +
+                 '<span class="pcd-lc-actor mono" style="color:hsl(var(--hue) 68% 60%);font-size:0.55rem;margin-right:0.5rem">' + actor + '</span>' +
+                 '<span class="pcd-lc-date mono">' + (e.at ? vfDateTime(e.at) : '') + '</span></div>';
+        }).join('');
+      } else {
+        logSection.style.display = 'none';
+      }
+    });
+}
+
+function _taskStat(color, num, label) {
+  return '<div class="pcd-task-stat"><span class="pcd-ts-dot" style="background:' + color + '"></span><span class="pcd-ts-num mono">' + num + '</span> ' + label + '</div>';
+}
+
+function closeProjectDrawer() {
+  document.getElementById('projectDrawerOverlay').style.display = 'none';
+  _pcdSlug = null;
+}
+
+// ── VF-286: Members panel — add / remove / role-change ───────────────────────
+var _pcdOwnerId = null;
+var _pcdMembersData = [];
+
+function _esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function pcdRenderMembers() {
+  var canManage = (_pcdMyRole === 'su' || _pcdMyRole === 'owner' || _pcdMyRole === 'admin');
+  var html = _pcdMembersData.map(function(m) {
+    var isAgent = m.type === 'agent';
+    var isOwner = !isAgent && m.user_id && m.user_id === _pcdOwnerId;
+    var icon = isAgent ? '&#129302;' : '&#128100;';
+    var avatarCls = isAgent ? 'pcd-avatar-agent' : 'pcd-avatar-human';
+    var hasMemberId = !!m.id;  // VF-296 auto-synthesised agent rows have id=null
+
+    // Name line: name + OWNER pill when this member is the project owner (VF-286 polish).
+    // Owner signal lives on the name so it's impossible to miss; role cell stays as the actual role.
+    var nameHtml = _esc(m.name) + (isOwner ? ' <span class="pcd-owner-pill">OWNER</span>' : '');
+
+    // Role cell: inline select for manageable non-owner human members; label otherwise.
+    // Owner is not role-editable via this UI (separate ownership-transfer concern); they still
+    // show their actual ProjectMember.role (usually 'admin') alongside the OWNER pill.
+    var roleCell;
+    if (canManage && !isAgent && !isOwner && hasMemberId) {
+      var opts = ['read','write','admin'].map(function(r) {
+        return '<option value="' + r + '"' + (r === m.role ? ' selected' : '') + '>' + r + '</option>';
+      }).join('');
+      roleCell = '<select class="pcd-member-role-sel" data-member-id="' + _esc(m.id) + '" onchange="pcdChangeMemberRole(this)" ' +
+                 'style="background:transparent;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text);font-family:var(--font-mono);font-size:0.6rem;padding:0.15rem 0.3rem;">' +
+                 opts + '</select>';
+    } else if (isAgent) {
+      var suffix = hasMemberId ? ' <span style="font-size:0.5rem;color:var(--color-text-muted)">(override)</span>'
+                                : ' <span style="font-size:0.5rem;color:var(--color-text-muted)">(auto)</span>';
+      roleCell = '<span class="mono">' + _esc(m.role) + '</span>' + suffix;
+    } else {
+      roleCell = '<span class="mono">' + _esc(m.role) + '</span>';
+    }
+
+    // Remove button: only for removable rows
+    var removeBtn = '';
+    if (canManage && hasMemberId && !isOwner) {
+      // Agents: remove is an override-delete (agent stays scoped). Human: cascade revoke agents.
+      var label = isAgent ? 'Remove role override (agent stays scoped)' : 'Remove from project (revokes their agents on this project)';
+      removeBtn = '<button class="pcd-member-remove" title="' + _esc(label) +
+                  '" onclick="pcdRemoveMember(' +
+                    "'" + _esc(m.id) + "'," +
+                    "'" + _esc(m.name) + "'," +
+                    (isAgent ? 'true' : 'false') +
+                  ')">&#10005;</button>';
+    }
+
+    return '<div class="pcd-member-row" style="display:flex;align-items:center;gap:0.5rem;">' +
+             '<div class="pcd-avatar ' + avatarCls + '">' + icon + '</div>' +
+             '<div class="pcd-member-info" style="flex:1;min-width:0;">' +
+               '<div class="pcd-member-name">' + nameHtml + '</div>' +
+               '<div class="pcd-member-role mono" style="display:flex;align-items:center;gap:0.25rem;">' + roleCell + '</div>' +
+             '</div>' +
+             removeBtn +
+           '</div>';
+  }).join('');
+  if (!html) { html = '<div style="font-size:0.65rem;color:var(--color-text-muted);padding:0.4rem;font-style:italic;">No members yet.</div>'; }
+  document.getElementById('pcdMembers').innerHTML = html;
+}
+
+function pcdReloadMembers() {
+  if (!_pcdSlug) return;
+  fetch('/api/v2/projects/' + _pcdSlug + '/dashboard', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      _pcdOwnerId = d.owner_id || null;
+      _pcdMembersData = d.members || [];
+      pcdRenderMembers();
+    });
+}
+
+function pcdAddMember() {
+  if (!_pcdSlug) return;
+  if (_pcdMyRole !== 'su' && _pcdMyRole !== 'owner' && _pcdMyRole !== 'admin') {
+    _mcInfo('Project admin role required', 'Only the project owner or a project admin can add members.');
+    return;
+  }
+  if (typeof window.openMemberPicker !== 'function') {
+    _mcInfo('Picker unavailable', 'Member picker partial did not load. Check that _member_picker.html is included.');
+    return;
+  }
+  window.openMemberPicker('add-user-to-project', { project_slug: _pcdSlug }, function(result) {
+    pcdReloadMembers();
+  });
+}
+
+function pcdChangeMemberRole(selectEl) {
+  var memberId = selectEl.dataset.memberId;
+  var newRole = selectEl.value;
+  if (!memberId || !newRole || !_pcdSlug) return;
+  fetch('/api/v2/projects/' + _pcdSlug + '/members/' + encodeURIComponent(memberId), {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: newRole }),
+  })
+  .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
+  .then(function(res) {
+    if (res.ok) {
+      pcdReloadMembers();
+    } else {
+      _mcInfo('Role change failed', _esc(res.data.detail || ('HTTP ' + res.status)));
+      pcdReloadMembers();  // revert select to server state
+    }
+  })
+  .catch(function(e) {
+    _mcInfo('Role change failed', 'Request error: ' + _esc(e.message));
+    pcdReloadMembers();
+  });
+}
+
+function pcdRemoveMember(memberId, targetName, isAgent) {
+  if (!_pcdSlug) return;
+  var msg = isAgent
+    ? 'Remove the role-override row for <strong>' + _esc(targetName) + '</strong>?<br>The agent stays scoped to this project (via <code>agents.project_id</code>). Only the override is dropped.'
+    : 'Remove <strong>' + _esc(targetName) + '</strong> from this project?<br>This cascade-revokes any agents they created on this project (v3 rule). Action is audited.';
+  _pcdConfirmAction('Remove member', msg, 'Remove', function() {
+    fetch('/api/v2/projects/' + _pcdSlug + '/members/' + encodeURIComponent(memberId), {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res) {
+      if (res.ok) {
+        var agentsRevoked = (res.data && res.data.agents_revoked) || [];
+        if (agentsRevoked.length) {
+          _mcInfo('Member removed', 'Also revoked ' + agentsRevoked.length + ' agent(s) created by them on this project: ' +
+            agentsRevoked.map(function(a) { return _esc(a.name); }).join(', '));
+        }
+        pcdReloadMembers();
+      } else {
+        _mcInfo('Remove failed', _esc(res.data.detail || ('HTTP ' + res.status)));
+      }
+    })
+    .catch(function(e) {
+      _mcInfo('Remove failed', 'Request error: ' + _esc(e.message));
+    });
+  });
+}
+
+/* Minimal confirm overlay — follows _mcInfo shape but with a destructive action button */
+function _pcdConfirmAction(title, htmlMessage, actionLabel, onConfirm) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:99999';
+  var card = document.createElement('div');
+  card.style.cssText = 'background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:1.5rem 2rem;max-width:480px';
+  card.innerHTML =
+    '<div style="font-size:0.9rem;font-weight:700;color:var(--color-text);margin-bottom:0.5rem">' + _esc(title) + '</div>' +
+    '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:1.25rem;line-height:1.5">' + htmlMessage + '</div>' +
+    '<div style="display:flex;gap:0.5rem;justify-content:flex-end">' +
+      '<button id="_pcdCancel" style="font-family:var(--font-mono);font-size:0.65rem;padding:0.4rem 1rem;border-radius:6px;border:1px solid var(--color-border);background:transparent;color:var(--color-text-muted);cursor:pointer;text-transform:uppercase;letter-spacing:0.05em">Cancel</button>' +
+      '<button id="_pcdConfirm" style="font-family:var(--font-mono);font-size:0.65rem;padding:0.4rem 1rem;border-radius:6px;border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.15);color:#ef4444;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em">' + _esc(actionLabel) + '</button>' +
+    '</div>';
+  ov.appendChild(card);
+  ov.querySelector('#_pcdCancel').addEventListener('click', function() { ov.remove(); });
+  ov.querySelector('#_pcdConfirm').addEventListener('click', function() { ov.remove(); onConfirm(); });
+  ov.addEventListener('click', function(e) { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+}
+
+// ── Pencil Name Edit ──
+
+function enableNameEdit() {
+  var inp = document.getElementById('pcdName');
+  inp.readOnly = false;
+  inp.focus();
+  inp.select();
+  document.getElementById('pcdPencil').style.display = 'none';
+}
+
+function saveProjectDrawer() {
+  if (!_pcdSlug) return;
+  var newName = document.getElementById('pcdName').value.trim();
+  var resume = document.getElementById('pcdResume').value.trim();
+
+  // If name changed, prompt for reason first
+  if (newName !== _pcdOrigName && newName) {
+    document.getElementById('renameFrom').textContent = _pcdOrigName;
+    document.getElementById('renameTo').textContent = newName;
+    document.getElementById('renameReason').value = '';
+    document.getElementById('renameOverlay').style.display = 'flex';
+    return;
+  }
+
+  // Normal save (resume only)
+  fetch('/api/v2/projects/' + _pcdSlug, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: newName || undefined, resume_summary: resume}),
+  }).then(function(r) {
+    if (r.ok) { closeProjectDrawer(); location.reload(); }
+    else { r.json().then(function(d) { vfToast(d.detail || 'Error'); }); }
+  });
+}
+
+function confirmRename() {
+  var reason = document.getElementById('renameReason').value.trim();
+  // VF-355: server enforces >=10 chars; gate client-side too for fast feedback.
+  if (reason.length < 10) {
+    vfToast('Reason must be at least 10 characters.');
+    document.getElementById('renameReason').focus();
+    return;
+  }
+  var newName = document.getElementById('pcdName').value.trim();
+  var resume = document.getElementById('pcdResume').value.trim();
+
+  // VF-355: pass reason through so the rename ActivityEvent captures WHY.
+  fetch('/api/v2/projects/' + _pcdSlug, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: newName, resume_summary: resume, reason: reason}),
+  }).then(function(r) {
+    if (r.ok) {
+      document.getElementById('renameOverlay').style.display = 'none';
+      closeProjectDrawer();
+      location.reload();
+    } else { r.json().then(function(d) {
+      // VF-355: detail may be a structured object {code, detail, ...} now;
+      // fall back to a string render for the toast.
+      var msg = (d && d.detail && typeof d.detail === 'object') ? (d.detail.detail || d.detail.code || JSON.stringify(d.detail)) : (d.detail || 'Error');
+      vfToast(msg);
+    }); }
+  });
+}
+
+function cancelRename() {
+  document.getElementById('renameOverlay').style.display = 'none';
+  document.getElementById('pcdName').value = _pcdOrigName;
+}
+
+// ── Pin / Unpin ──
+
+function togglePin() {
+  if (!_pcdSlug) return;
+  fetch('/api/v2/projects/' + _pcdSlug + '/pin', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({pinned: !_pcdPinned}),
+  }).then(function(r) {
+    if (r.ok) { closeProjectDrawer(); location.reload(); }
+    else { r.json().then(function(d) { vfToast(d.detail || 'Error'); }); }
+  });
+}
+
+// ── Archive Flow ──
+
+function startArchive() {
+  if (!_pcdSlug) return;
+  fetch('/api/v2/projects/' + _pcdSlug + '/archive-summary')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var html = '';
+      if (d.can_archive) {
+        html += '<div style="color:var(--color-done);font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2);">All tasks resolved. Ready to archive.</div>';
+      } else {
+        html += '<div style="color:var(--color-blocked);font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2);">Cannot archive — ' + d.open_task_count + ' open tasks remain.</div>';
+      }
+      html += '<div style="font-size:var(--text-xs);color:var(--color-text-muted);line-height:1.6;">';
+      html += '<div>Total tasks: <strong>' + d.total_tasks + '</strong> (done: ' + d.done_tasks + ')</div>';
+      if (d.open_task_count > 0) {
+        html += '<div>Open tasks: ';
+        Object.keys(d.open_tasks_by_status).forEach(function(s) {
+          html += '<span class="mc-prj-prefix mono" style="margin-right:4px;">' + s + ': ' + d.open_tasks_by_status[s] + '</span>';
+        });
+        html += '</div>';
+      }
+      if (d.open_milestone_count > 0) {
+        html += '<div>Open milestones: ' + d.open_milestones.map(function(m) { return m.name; }).join(', ') + '</div>';
+      }
+      html += '</div>';
+      document.getElementById('archiveSummary').innerHTML = html;
+      // Reset dialog to archive mode (may have been used for reopen)
+      document.getElementById('archiveType').closest('div').style.display = '';
+      document.getElementById('archiveReason').placeholder = 'Why is this project being archived?';
+      var btn = document.getElementById('archiveConfirmBtn');
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      if (d.can_archive) {
+        btn.textContent = 'Archive';
+        btn.style.background = 'var(--color-needs-review)';
+        btn.style.borderColor = 'var(--color-needs-review)';
+        btn.onclick = function() { confirmArchive(false); };
+      } else {
+        btn.textContent = 'Force Archive';
+        btn.style.background = 'var(--color-blocked)';
+        btn.style.borderColor = 'var(--color-blocked)';
+        btn.onclick = function() { confirmArchive(true); };
+      }
+      document.getElementById('archiveOverlay').querySelector('.pcd-badge').textContent = 'ARCHIVE PROJECT';
+      document.getElementById('archiveOverlay').querySelector('.pcd-neon-bar').style.background =
+        'linear-gradient(90deg, var(--color-needs-review), var(--color-blocked), var(--color-needs-review))';
+      document.getElementById('archiveReason').value = '';
+      document.getElementById('archiveOverlay').style.display = 'flex';
+    });
+}
+
+function confirmArchive(force) {
+  var reason = document.getElementById('archiveReason').value.trim();
+  if (!reason) { document.getElementById('archiveReason').focus(); return; }
+  var type = document.getElementById('archiveType').value;
+  fetch('/api/v2/projects/' + _pcdSlug + '/archive', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reason_type: type, reason: reason, force: !!force}),
+  }).then(function(r) {
+    if (r.ok) {
+      var slug = _pcdSlug; // capture before closeProjectDrawer nulls it
+      document.getElementById('archiveOverlay').style.display = 'none';
+      closeProjectDrawer();
+      localStorage.setItem('mc-inactive-open', '1');
+      // Fetch stats for animation
+      fetch('/api/v2/projects/' + slug + '/dashboard').then(function(dr) { return dr.json(); }).then(function(d) {
+        var stats = d.tasks.resolved + ' tasks resolved · ' + d.milestones.length + ' milestones · ' + d.members.length + ' members';
+        playArchiveAnimation(d.name, stats, function() { location.reload(); });
+      }).catch(function() { location.reload(); });
+    } else { r.json().then(function(d) { vfToast(d.detail || 'Cannot archive'); }); }
+  });
+}
+
+function startReopen() {
+  document.getElementById('archiveSummary').innerHTML =
+    '<div style="font-size:var(--text-xs);color:var(--color-done);font-weight:600;margin-bottom:var(--space-2);">Reopening this project will restore it to active status.</div>';
+  document.getElementById('archiveType').closest('div').style.display = 'none';
+  document.getElementById('archiveReason').value = '';
+  document.getElementById('archiveReason').placeholder = 'Why is this project being reopened?';
+  var btn = document.getElementById('archiveConfirmBtn');
+  btn.textContent = 'Reopen';
+  btn.style.background = 'var(--color-done)';
+  btn.style.borderColor = 'var(--color-done)';
+  btn.disabled = false;
+  btn.style.opacity = '1';
+  btn.onclick = function() { confirmReopen(); };
+  document.getElementById('archiveOverlay').querySelector('.pcd-badge').textContent = 'REOPEN PROJECT';
+  document.getElementById('archiveOverlay').querySelector('.pcd-neon-bar').style.background =
+    'linear-gradient(90deg, var(--color-done), hsl(var(--hue) 68% 55%), var(--color-done))';
+  document.getElementById('archiveOverlay').style.display = 'flex';
+}
+
+function confirmReopen() {
+  var reason = document.getElementById('archiveReason').value.trim();
+  if (!reason) { document.getElementById('archiveReason').focus(); return; }
+  fetch('/api/v2/projects/' + _pcdSlug + '/reopen', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reason: reason}),
+  }).then(function(r) {
+    if (r.ok) {
+      document.getElementById('archiveOverlay').style.display = 'none';
+      closeProjectDrawer();
+      localStorage.setItem('mc-inactive-open', '1');
+      location.reload();
+    } else { r.json().then(function(d) { vfToast(d.detail || 'Error'); }); }
+  });
+}
+
+// Legacy New-Project-Drawer JS removed — superseded by /ui/onboard wizard. See VF-385.
+
+// ── Complete Project Flow ──
+
+var _completeForce = false;
+
+function startComplete() {
+  if (!_pcdSlug) return;
+  _completeForce = false;
+  fetch('/api/v2/projects/' + _pcdSlug + '/dashboard')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var t = d.tasks;
+      var ms = d.milestones;
+      var msDone = ms.filter(function(m) { return m.status === 'done'; }).length;
+      var msOpen = ms.filter(function(m) { return m.status !== 'done'; });
+      var html = '<div style="color:var(--color-done);font-weight:600;margin-bottom:var(--space-2);">All ' + t.total + ' tasks resolved.</div>' +
+        '<div style="font-size:var(--text-xs);color:var(--color-text-muted);line-height:1.6;">' +
+        '<div>Done: <strong>' + t.done + '</strong> | Cancelled: <strong>' + t.cancelled + '</strong></div>' +
+        '<div>Milestones: <strong>' + msDone + '/' + ms.length + '</strong> closed</div>';
+
+      var btn = document.querySelector('#completeOverlay .pcd-footer .pcd-btn:last-child');
+      if (msOpen.length > 0) {
+        html += '<div style="color:var(--color-needs-review);margin-top:var(--space-2);font-weight:600;">Open milestones:</div>';
+        msOpen.forEach(function(m) {
+          html += '<div style="margin-left:var(--space-2);">' + m.label + ' — ' + m.name + ' (' + m.done + '/' + m.total + ' tasks)</div>';
+        });
+        html += '</div>';
+        _completeForce = true;
+        btn.textContent = 'Force Complete';
+        btn.style.background = 'var(--color-needs-review)';
+        btn.style.borderColor = 'var(--color-needs-review)';
+      } else {
+        html += '</div>';
+        _completeForce = false;
+        btn.textContent = 'Complete Project';
+        btn.style.background = 'var(--color-done)';
+        btn.style.borderColor = 'var(--color-done)';
+      }
+
+      document.getElementById('completeSummaryStats').innerHTML = html;
+      document.getElementById('completeSummary').value = '';
+      document.getElementById('completeOverlay').style.display = 'flex';
+    });
+}
+
+function confirmComplete() {
+  var summary = document.getElementById('completeSummary').value.trim();
+  if (!summary) { document.getElementById('completeSummary').focus(); return; }
+  fetch('/api/v2/projects/' + _pcdSlug + '/complete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({summary: summary, force: _completeForce}),
+  }).then(function(r) {
+    if (r.ok) {
+      r.json().then(function(d) {
+        document.getElementById('completeOverlay').style.display = 'none';
+        closeProjectDrawer();
+        showCelebration(d.slug);
+      });
+    } else { r.json().then(function(d) { vfToast(d.detail || 'Error'); }); }
+  });
+}
+
+function showCelebration(slug) {
+  // Fetch fresh data for celebration stats
+  fetch('/api/v2/projects/' + slug + '/dashboard')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      // Confetti
+      spawnConfetti();
+
+      // Overlay
+      var overlay = document.createElement('div');
+      overlay.className = 'mc-celebrate-overlay';
+      overlay.innerHTML =
+        '<div class="mc-celebrate-card">' +
+        '<div class="mc-celebrate-title">Mission Complete</div>' +
+        '<div class="mc-celebrate-name">' + d.name + '</div>' +
+        '<div class="mc-celebrate-bar"><div class="mc-celebrate-bar-fill" style="width:100%"></div></div>' +
+        '<div class="mc-celebrate-stats">' +
+        d.tasks.done + ' done &middot; ' + d.tasks.cancelled + ' cancelled &middot; ' +
+        d.milestones.length + ' milestones &middot; ' + d.members.length + ' members' +
+        '</div>' +
+        '<button class="pcd-btn pcd-btn-save" style="background:var(--color-done);border-color:var(--color-done);" ' +
+        'onclick="this.closest(\'.mc-celebrate-overlay\').remove();location.reload();">Continue</button>' +
+        '</div>';
+      document.body.appendChild(overlay);
+    });
+}
+
+function spawnConfetti() {
+  var colors = ['#10b981', '#7c3aed', '#f59e0b', '#38bdf8', '#ef4444', '#ec4899'];
+  var container = document.createElement('div');
+  container.className = 'mc-confetti';
+  container.style.cssText = 'position:fixed;inset:0;z-index:401;pointer-events:none;overflow:hidden;';
+  document.body.appendChild(container);
+  for (var i = 0; i < 60; i++) {
+    var piece = document.createElement('div');
+    piece.className = 'mc-confetti-piece';
+    piece.style.left = Math.random() * 100 + '%';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.animationDuration = (2 + Math.random() * 3) + 's';
+    piece.style.animationDelay = Math.random() * 1.5 + 's';
+    piece.style.width = (6 + Math.random() * 6) + 'px';
+    piece.style.height = (6 + Math.random() * 6) + 'px';
+    piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+    container.appendChild(piece);
+  }
+  setTimeout(function() { container.remove(); }, 6000);
+}
+
+// Keyboard: Escape closes drawers
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    if (document.getElementById('completeOverlay').style.display === 'flex') { document.getElementById('completeOverlay').style.display = 'none'; return; }
+    if (document.getElementById('renameOverlay').style.display === 'flex') { cancelRename(); return; }
+    if (document.getElementById('archiveOverlay').style.display === 'flex') { document.getElementById('archiveOverlay').style.display = 'none'; return; }
+    if (_pcdSlug) closeProjectDrawer();
+  }
+});
+
+// ── Draggable project cards — snap-to-grid reorder ──
+// Rules: pinned cards reorder only among pinned. Unpinned only among unpinned.
+// Legal slots are pre-computed so illegal positions are never shown.
+(function() {
+  var grid = document.getElementById('activeProjectGrid');
+  if (!grid || !window.Sortable) return;
+
+  function pinnedCount() {
+    return grid.querySelectorAll('.mc-project-pinned').length;
+  }
+
+  Sortable.create(grid, {
+    handle: '.mc-card-grip',
+    animation: 200,
+    ghostClass: 'mc-card-ghost',
+    chosenClass: 'mc-card-chosen',
+    dragClass: 'mc-card-drag',
+    easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    onStart: function() {
+      grid._dragging = true;
+    },
+    onMove: function(evt) {
+      // Pre-validate: enforce pinned/unpinned zones
+      var dragged = evt.dragged;
+      var related = evt.related;
+      var isPinned = dragged.classList.contains('mc-project-pinned');
+      var cards = Array.from(grid.querySelectorAll('.mc-project-card'));
+      var targetIdx = cards.indexOf(related);
+      var pc = pinnedCount();
+
+      if (isPinned) {
+        // Pinned card: can only land in indices 0..pc-1
+        if (targetIdx >= pc) return false;
+      } else {
+        // Unpinned card: can only land in indices pc..end
+        if (targetIdx < pc) return false;
+      }
+    },
+    onEnd: function() {
+      grid._dragging = false;
+      // Persist: pinned order goes to pin API, unpinned to card reorder API
+      var cards = grid.querySelectorAll('.mc-project-card');
+      var pinnedSlugs = [];
+      var unpinnedSlugs = [];
+      cards.forEach(function(c) {
+        if (!c.dataset.slug) return;
+        if (c.classList.contains('mc-project-pinned')) {
+          pinnedSlugs.push(c.dataset.slug);
+        } else {
+          unpinnedSlugs.push(c.dataset.slug);
+        }
+      });
+      // Update pin_order for pinned cards
+      pinnedSlugs.forEach(function(slug, i) {
+        fetch('/api/v2/projects/' + slug + '/pin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({pinned: true, pin_order: i + 1}),
+        });
+      });
+      // Update card_order for unpinned cards
+      if (unpinnedSlugs.length > 0) {
+        fetch('/api/v2/projects/reorder-cards', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({slugs: unpinnedSlugs}),
+        });
+      }
+    },
+  });
+  // Prevent card click from firing during drag
+  var origOpen = window.openProjectDrawer;
+  window.openProjectDrawer = function(slug) {
+    if (grid._dragging) return;
+    origOpen(slug);
+  };
+})();
+</script>
+{% endblock %}

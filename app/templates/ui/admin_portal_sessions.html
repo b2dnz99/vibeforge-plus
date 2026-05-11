@@ -1,0 +1,241 @@
+{% extends "ui/admin_base.html" %}
+{# VF-341 §5.3 — Sessions list workspace (master-detail).
+   Replaces the prior pending-migration banner table with a 3-pane shell
+   matching VF-329 Users + VF-343 Agents. List pane shows actor / type /
+   state badge / IP+class / last activity. Detail pane shows full row +
+   browser+OS + revoke action (hidden on operator's own current rows).
+   See 0-MD/proposed/SESSION-LIFECYCLE-PROPOSAL.md §5. #}
+{% block title %}Admin · Active sessions — VibeForge+{% endblock %}
+
+{% block extra_css %}
+  /* admin_base wraps the extra_css block inside a single style tag — raw CSS only here, no style wrappers. */
+  .aps-shell { display: grid; grid-template-columns: 360px 1fr; gap: 18px; min-height: 540px; }
+  .aps-list-pane, .aps-detail-pane {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 12px;
+  }
+  .aps-list-title { font-family: var(--mono); font-size: 0.62rem; color: var(--violet); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .aps-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .aps-chip {
+    font-family: var(--mono); font-size: 0.6rem; padding: 3px 9px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+    border-radius: 5px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .aps-chip:hover:not(.active) { border-color: var(--violet); color: var(--violet); }
+  .aps-chip.active { background: rgba(167,139,250,0.18); border-color: var(--violet); color: var(--violet); }
+
+  .aps-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 10px;
+    padding: 9px 8px; border-radius: 6px; cursor: pointer;
+    border-bottom: 1px dashed var(--border);
+  }
+  .aps-row:last-child { border-bottom: none; }
+  .aps-row:hover { background: rgba(167,139,250,0.06); }
+  .aps-row.active { background: rgba(167,139,250,0.14); }
+  .aps-row-name { font-weight: 600; font-size: 0.78rem; color: var(--text); }
+  .aps-row-state { font-family: var(--mono); font-size: 0.55rem; padding: 1px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.06em; align-self: center; }
+  .aps-state-active   { background: rgba(16,185,129,0.16); color: #6ee7b7; }
+  .aps-state-away     { background: rgba(245,158,11,0.16); color: #fcd34d; }
+  .aps-state-idle     { background: rgba(148,163,184,0.16); color: #cbd5e1; }
+  .aps-state-expired  { background: rgba(148,163,184,0.16); color: #94a3b8; }
+  .aps-state-revoked  { background: rgba(239,68,68,0.18); color: #fca5a5; }
+
+  .aps-row-meta { font-family: var(--mono); font-size: 0.62rem; color: var(--text-muted); grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+  .aps-ip-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+  .aps-ip-loopback { background: #60a5fa; }
+  .aps-ip-private  { background: #34d399; }
+  .aps-ip-public   { background: #fb923c; }
+  .aps-ip-unknown  { background: #94a3b8; }
+
+  .aps-detail-empty { padding: 30px 16px; text-align: center; color: var(--text-muted); font-style: italic; }
+  .aps-detail-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+  .aps-detail-sub { font-family: var(--mono); font-size: 0.62rem; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .aps-detail-panel { background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .aps-panel-title { font-family: var(--mono); font-size: 0.6rem; color: var(--violet); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+  .aps-drow { display: grid; grid-template-columns: 130px 1fr; gap: 8px 12px; padding: 4px 0; font-size: 0.74rem; }
+  .aps-drow-label { font-family: var(--mono); font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .aps-drow-value { font-family: var(--mono); color: var(--text); word-break: break-all; }
+  .aps-ua-raw {
+    font-family: var(--mono); font-size: 0.6rem; color: var(--text-muted);
+    background: var(--bg-panel-3, var(--bg-panel-2)); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 8px; margin-top: 4px; word-break: break-all;
+  }
+  .aps-revoke-btn {
+    font-family: var(--mono); font-size: 0.7rem; padding: 6px 14px;
+    border: 1px solid #ef4444; background: transparent; color: #ef4444;
+    border-radius: 5px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .aps-revoke-btn:hover { background: #ef4444; color: #fff; }
+  .aps-self-tag {
+    font-family: var(--mono); font-size: 0.55rem; padding: 1px 7px; border-radius: 3px;
+    background: rgba(96,165,250,0.16); color: #93c5fd; text-transform: uppercase; letter-spacing: 0.07em;
+  }
+{% endblock %}
+
+{% block content %}
+<div style="padding: 14px 0;">
+  <div class="ap-crumb"><span>Admin</span> &rsaquo; Administration &rsaquo; Active sessions</div>
+  <h1 class="ap-ws-title">Active sessions</h1>
+  <div class="ap-ws-subtitle">
+    Live board + admin sessions.
+    <a href="/admin/portal/configuration/session-policy" style="color: var(--violet); text-decoration: none;">Tune the session policy &rarr;</a>
+  </div>
+
+  <div class="aps-shell" style="margin-top: 18px;">
+    <div class="aps-list-pane">
+      <div class="aps-list-title">// SESSIONS</div>
+      <div class="aps-chips">
+        <button class="aps-chip active" data-filter="active" onclick="apsSetFilter('active', this)">Active</button>
+        <button class="aps-chip" data-filter="all" onclick="apsSetFilter('all', this)">All</button>
+        <button class="aps-chip" data-filter="revoked" onclick="apsSetFilter('revoked', this)">Revoked</button>
+        <button class="aps-chip" data-filter="mine" onclick="apsSetFilter('mine', this)">Mine</button>
+      </div>
+      <div id="apsList"></div>
+    </div>
+    <div class="aps-detail-pane" id="apsDetail">
+      <div class="aps-detail-empty">Select a session to inspect.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  let _apsAll = [];
+  let _apsCurrent = null;
+  let _apsCurrentSa = null;
+  let _apsFilter = 'active';
+  let _apsSelected = null;
+
+  function _apsEsc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function _apsAge(seconds) {
+    if (seconds == null) return '—';
+    if (seconds < 60) return seconds + 's';
+    if (seconds < 3600) return Math.floor(seconds/60) + 'm';
+    if (seconds < 86400) return Math.floor(seconds/3600) + 'h';
+    return Math.floor(seconds/86400) + 'd';
+  }
+
+  function _apsFmtIso(iso) {
+    if (!iso) return '—';
+    return iso.slice(0, 19).replace('T', ' ');
+  }
+
+  async function apsLoad() {
+    const r = await fetch('/admin/portal/api/sessions/list');
+    if (!r.ok) {
+      document.getElementById('apsList').innerHTML =
+        '<div style="color: var(--text-muted); padding: 12px;">Error loading sessions (HTTP ' + r.status + ').</div>';
+      return;
+    }
+    const data = await r.json();
+    _apsAll = data.sessions || [];
+    _apsCurrent = data.current_session_id;
+    _apsCurrentSa = data.current_sa_session_id;
+    apsRender();
+  }
+
+  function apsSetFilter(name, btnEl) {
+    _apsFilter = name;
+    document.querySelectorAll('.aps-chip').forEach(b => b.classList.toggle('active', b === btnEl));
+    apsRender();
+  }
+
+  function apsRender() {
+    let rows = _apsAll;
+    if (_apsFilter === 'active') rows = rows.filter(r => ['active','away','idle'].includes(r.state));
+    else if (_apsFilter === 'revoked') rows = rows.filter(r => r.state === 'revoked');
+    else if (_apsFilter === 'mine') rows = rows.filter(r => r.id === _apsCurrent || r.id === _apsCurrentSa);
+    const list = document.getElementById('apsList');
+    if (!rows.length) {
+      list.innerHTML = '<div style="color: var(--text-muted); padding: 12px; font-style: italic;">No sessions in this filter.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(r => `
+      <div class="aps-row ${_apsSelected === r.id ? 'active' : ''}" onclick="apsSelect('${r.id}')">
+        <div class="aps-row-name">${_apsEsc(r.user_name)} <span style="color: var(--text-muted); font-size: 0.65rem; margin-left: 4px;">${_apsEsc(r.session_type)}</span></div>
+        <div class="aps-row-state aps-state-${r.state}">${r.state}</div>
+        <div class="aps-row-meta">
+          <span><span class="aps-ip-dot aps-ip-${r.ip_class}"></span>${_apsEsc(r.ip_address || '?')}</span>
+          <span>${_apsEsc(r.ua_summary || 'unknown')}</span>
+          <span>last ${_apsAge(r.last_age_seconds)}</span>
+          ${(r.id === _apsCurrent || r.id === _apsCurrentSa) ? '<span class="aps-self-tag">YOU</span>' : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function apsSelect(id) {
+    _apsSelected = id;
+    apsRender();
+    const s = _apsAll.find(r => r.id === id);
+    if (!s) { document.getElementById('apsDetail').innerHTML = '<div class="aps-detail-empty">Session not found.</div>'; return; }
+    const isOwn = (s.id === _apsCurrent || s.id === _apsCurrentSa);
+    const detail = document.getElementById('apsDetail');
+    detail.innerHTML = `
+      <div class="aps-detail-name">${_apsEsc(s.user_name)} ${isOwn ? '<span class="aps-self-tag">YOU</span>' : ''}</div>
+      <div class="aps-detail-sub">// ${_apsEsc(s.session_type)} session &middot; <span class="aps-row-state aps-state-${s.state}" style="display:inline-block;margin-left:4px">${s.state}</span></div>
+
+      <div class="aps-detail-panel">
+        <div class="aps-panel-title">// IDENTITY</div>
+        <div class="aps-drow"><div class="aps-drow-label">USER</div><div class="aps-drow-value">${_apsEsc(s.user_name)} (${_apsEsc(s.user_role)})</div></div>
+        <div class="aps-drow"><div class="aps-drow-label">SESSION ID</div><div class="aps-drow-value">${_apsEsc(s.id)}</div></div>
+        <div class="aps-drow"><div class="aps-drow-label">TYPE</div><div class="aps-drow-value">${_apsEsc(s.session_type)}</div></div>
+        ${s.elevated ? `<div class="aps-drow"><div class="aps-drow-label">ELEVATED</div><div class="aps-drow-value" style="color:#fca5a5">until ${_apsFmtIso(s.elevated_until)}</div></div>` : ''}
+      </div>
+
+      <div class="aps-detail-panel">
+        <div class="aps-panel-title">// CLIENT</div>
+        <div class="aps-drow"><div class="aps-drow-label">IP</div><div class="aps-drow-value"><span class="aps-ip-dot aps-ip-${s.ip_class}"></span>${_apsEsc(s.ip_address || '?')} <span style="color:var(--text-muted); margin-left:6px;">(${s.ip_class})</span></div></div>
+        <div class="aps-drow"><div class="aps-drow-label">BROWSER</div><div class="aps-drow-value">${_apsEsc(s.ua_summary || 'unknown')}</div></div>
+        ${s.ua_raw ? `<div class="aps-drow"><div class="aps-drow-label">UA RAW</div><div class="aps-drow-value"><div class="aps-ua-raw">${_apsEsc(s.ua_raw)}</div></div></div>` : ''}
+      </div>
+
+      <div class="aps-detail-panel">
+        <div class="aps-panel-title">// LIFETIME</div>
+        <div class="aps-drow"><div class="aps-drow-label">CREATED</div><div class="aps-drow-value">${_apsFmtIso(s.created_at)}</div></div>
+        <div class="aps-drow"><div class="aps-drow-label">EXPIRES</div><div class="aps-drow-value">${_apsFmtIso(s.expires_at)}</div></div>
+        <div class="aps-drow"><div class="aps-drow-label">LAST ACTIVITY</div><div class="aps-drow-value">${_apsFmtIso(s.last_activity_at)} (${_apsAge(s.last_age_seconds)} ago)</div></div>
+        ${s.revoked_at ? `
+          <div class="aps-drow"><div class="aps-drow-label">REVOKED AT</div><div class="aps-drow-value" style="color:#fca5a5">${_apsFmtIso(s.revoked_at)}</div></div>
+          <div class="aps-drow"><div class="aps-drow-label">REVOKED BY</div><div class="aps-drow-value">${_apsEsc(s.revoked_by || '?')}</div></div>
+          <div class="aps-drow"><div class="aps-drow-label">REASON</div><div class="aps-drow-value">${_apsEsc(s.revoke_reason || '?')}</div></div>` : ''}
+      </div>
+
+      ${(!isOwn && !s.revoked_at) ? `
+        <div class="aps-detail-panel" style="border-color: rgba(239,68,68,0.4);">
+          <div class="aps-panel-title" style="color:#fca5a5">// DANGER ZONE</div>
+          <div style="font-size:0.72rem; color: var(--text-muted); margin-bottom: 10px;">
+            Revoke this session. Soft-delete &mdash; the row stays for forensic; the user gets 401 on next request.
+          </div>
+          <button class="aps-revoke-btn" onclick="apsRevoke('${s.id}')">Revoke session</button>
+        </div>` : ''}
+    `;
+  }
+
+  async function apsRevoke(id) {
+    // Use admin_base's themed apuConfirm (VF-329) — matches the rest of
+    // the portal's confirmation pattern; native confirm()/alert() are not
+    // allowed in the admin portal surface.
+    const s = _apsAll.find(r => r.id === id);
+    const ok = await window.apuConfirm({
+      title: 'Revoke session?',
+      body: (s ? s.user_name : 'This session') + ' will be 401-d on their next request. The row stays for forensic — soft-delete only.',
+      okLabel: 'Revoke', tone: 'red',
+    });
+    if (!ok) return;
+    const r = await fetch('/admin/portal/api/sessions/' + id + '/revoke', { method: 'POST' });
+    if (!r.ok) {
+      let txt = '';
+      try { const j = await r.json(); txt = j.detail || JSON.stringify(j); } catch(e){ txt = await r.text(); }
+      if (window.apuToast) apuToast('Revoke failed', txt.slice(0, 200), 'red');
+      else console.error('Revoke failed:', txt);
+      return;
+    }
+    if (window.apuToast) apuToast('Session revoked', 'User will be 401-d on next request.', 'green');
+    await apsLoad();
+    apsSelect(id);
+  }
+
+  apsLoad();
+{% endblock %}

@@ -1,0 +1,835 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration — VibeForge+{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title">Configuration</div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 56rem; margin: 0 auto;">
+
+  {# ── Scoped styles ── #}
+  <style>
+  /* Tabs */
+  .config-tabs{display:flex;gap:0;border-bottom:1px solid var(--color-border);margin-bottom:var(--space-4)}
+  .config-tab{font-family:var(--font-mono);font-size:var(--text-xs);padding:0.6rem 1.25rem;color:var(--color-text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s;text-transform:uppercase;letter-spacing:0.06em}
+  .config-tab:hover{color:var(--color-text)}
+  .config-tab.active{color:hsl(var(--hue) 68% 55%);border-bottom-color:hsl(var(--hue) 68% 55%)}
+  .cfg-tab-content{display:none}
+  .cfg-tab-content.active{display:block}
+
+  /* Section — admin-style panels adapted to user theme */
+  .cfg-section{background:var(--color-surface);border:1px solid var(--color-border);border-radius:10px;padding:1.25rem 1.5rem;margin-bottom:1.5rem}
+  .cfg-section h3{font-family:var(--font-mono);font-size:0.75rem;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.75rem}
+
+  /* Info grid — like admin_agent identity grid */
+  .cfg-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 1.5rem}
+  .cfg-info-item{display:flex;flex-direction:column;gap:0.15rem}
+  .cfg-info-label{font-family:var(--font-mono);font-size:0.5rem;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.08em}
+  .cfg-info-value{font-family:var(--font-mono);font-size:0.72rem;color:var(--color-text)}
+
+  /* Form fields — admin style */
+  .cfg-form-row{display:flex;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap}
+  .cfg-form-field{display:flex;flex-direction:column;gap:0.2rem;flex:1;min-width:150px}
+  .cfg-form-field label{font-family:var(--font-mono);font-size:0.5rem;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.08em}
+  .cfg-form-field input,.cfg-form-field select{padding:0.35rem 0.5rem;border-radius:5px;border:1px solid var(--color-border);background:var(--color-surface-sub);font-family:var(--font-mono);font-size:0.72rem;color:var(--color-text);outline:none}
+  .cfg-form-field input:focus,.cfg-form-field select:focus{border-color:hsl(var(--hue) 68% 55%);box-shadow:0 0 6px hsl(var(--hue) 68% 55% / 0.15)}
+  .cfg-form-field input::-ms-reveal,.cfg-form-field input::-webkit-credentials-auto-fill-button{display:none !important}
+
+  /* Buttons — admin btn-row style */
+  .cfg-btn-row{display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;align-items:center}
+  .cfg-btn{font-family:var(--font-mono);font-size:0.65rem;padding:0.4rem 1rem;border-radius:6px;border:1px solid;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.15s}
+  .cfg-btn-primary{border-color:hsl(var(--hue) 68% 55% / 0.3);background:hsl(var(--hue) 68% 55% / 0.1);color:hsl(var(--hue) 68% 55%)}
+  .cfg-btn-primary:hover{background:hsl(var(--hue) 68% 55% / 0.2)}
+  .cfg-btn-cycle{border-color:rgba(245,158,11,0.25);background:rgba(245,158,11,0.08);color:rgba(245,158,11,0.8)}
+  .cfg-btn-cycle:hover{background:rgba(245,158,11,0.15)}
+  .cfg-btn-revoke{border-color:rgba(239,68,68,0.25);background:rgba(239,68,68,0.08);color:rgba(239,68,68,0.7)}
+  .cfg-btn-revoke:hover{background:rgba(239,68,68,0.15)}
+  .cfg-btn-restore{border-color:rgba(16,185,129,0.25);background:rgba(16,185,129,0.08);color:rgba(16,185,129,0.7)}
+  .cfg-btn-restore:hover{background:rgba(16,185,129,0.12)}
+  .cfg-btn-ghost{border-color:var(--color-border);background:transparent;color:var(--color-text-muted)}
+  .cfg-btn-ghost:hover{color:var(--color-text);border-color:hsl(var(--hue) 68% 55% / 0.3)}
+
+  /* Badge */
+  .cfg-badge{font-family:var(--font-mono);font-size:0.55rem;padding:2px 8px;border-radius:4px;font-weight:600;text-transform:uppercase}
+  .cfg-badge-role{background:hsl(var(--hue) 68% 55% / 0.12);color:hsl(var(--hue) 68% 55%);border:1px solid hsl(var(--hue) 68% 55% / 0.25)}
+
+  /* Agent row — clickable like admin list */
+  .cfg-agent-row{display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;margin-bottom:2px;border-radius:6px;transition:background 0.15s}
+  .cfg-agent-row:hover{background:var(--color-surface-sub)}
+  .cfg-agent-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .cfg-dot-active{background:#10b981;box-shadow:0 0 4px rgba(16,185,129,0.4)}
+  .cfg-dot-revoked{background:#ef4444;box-shadow:0 0 4px rgba(239,68,68,0.4)}
+  /* VF-342: token expiry chip — eternal / red / amber / ok / expired */
+  .cfg-exp-chip{font-family:var(--font-mono);font-size:0.5rem;padding:1px 6px;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;border:1px solid;white-space:nowrap}
+  .cfg-exp-eternal{background:hsl(35 85% 50% / 0.12);color:hsl(35 85% 60%);border-color:hsl(35 85% 50% / 0.4)}
+  .cfg-exp-ok{background:hsl(160 60% 40% / 0.10);color:hsl(160 60% 55%);border-color:hsl(160 60% 40% / 0.30)}
+  .cfg-exp-amber{background:hsl(40 90% 50% / 0.12);color:hsl(40 90% 60%);border-color:hsl(40 90% 50% / 0.40)}
+  .cfg-exp-red{background:hsl(0 70% 50% / 0.12);color:hsl(0 75% 65%);border-color:hsl(0 70% 50% / 0.40)}
+  .cfg-exp-expired{background:hsl(0 70% 50% / 0.18);color:#fff;border-color:hsl(0 70% 50% / 0.60)}
+  /* VF-342: eternal-token warning callout under create form checkbox */
+  .cfg-eternal-hint{margin-top:0.4rem;padding:0.45rem 0.6rem;background:hsl(35 85% 50% / 0.10);border-left:2px solid hsl(35 85% 55%);font-size:0.6rem;color:var(--color-text);border-radius:0 3px 3px 0;line-height:1.5}
+
+  /* Message flash */
+  .cfg-msg{font-family:var(--font-mono);font-size:0.7rem;padding:0.5rem;border-radius:6px;margin-top:0.5rem;display:none}
+  .cfg-msg.ok{display:block;background:rgba(16,185,129,0.08);color:#10b981;border:1px solid rgba(16,185,129,0.2)}
+  .cfg-msg.err{display:block;background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2)}
+
+  /* Password peek */
+  .pw-wrap{position:relative;display:flex;align-items:center}
+  .pw-wrap input{flex:1;padding-right:0.4rem !important}
+  .pw-wrap input::-ms-reveal,.pw-wrap input::-webkit-credentials-auto-fill-button{display:none}
+  .pw-peek{position:absolute;right:-2.2rem;background:none;border:none;cursor:pointer;font-size:1rem;color:hsl(var(--hue) 68% 55%);opacity:0.5;padding:4px;transition:opacity 0.15s}
+  .pw-peek:hover{opacity:1}
+
+  /* Padlock overlay */
+  .cfg-padlock{position:absolute;inset:0;background:var(--color-surface);opacity:0.6;border-radius:10px;z-index:1;display:flex;align-items:center;justify-content:center}
+  </style>
+
+  {# ── Tabs ── #}
+  <div class="config-tabs">
+    <div class="config-tab active" onclick="showCfgTab('appearance',this)">Appearance</div>
+    <div class="config-tab" onclick="showCfgTab('account',this)">Account</div>
+    <div class="config-tab" onclick="showCfgTab('agents',this)">&#129302; Agents</div>
+    <div class="config-tab" onclick="showCfgTab('certificate',this)">&#x1F512; Certificate</div>
+    <div class="config-tab" onclick="showCfgTab('admin',this)">Administration</div>
+  </div>
+
+  {# ══════════════════════════════════════════════════════════
+     TAB: Appearance — kept as-is, works well
+     ══════════════════════════════════════════════════════════ #}
+  <div class="cfg-tab-content active" id="cfg-appearance">
+  <div class="cfg-section">
+    <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);">
+      <h3 style="margin-bottom:0">Appearance</h3>
+      <button class="cfg-btn cfg-btn-ghost" onclick="resetDisplay()">Reset to defaults</button>
+    </div>
+
+    {# Dark mode #}
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4);">
+      <div>
+        <div style="font-size: var(--text-sm); font-weight: 600;">Dark mode</div>
+        <div style="font-size: var(--text-xs); color: var(--color-text-muted);">Switch between light and dark themes</div>
+      </div>
+      <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" title="Dark mode"></button>
+    </div>
+
+    {# Accent colour #}
+    <div style="margin-bottom: var(--space-4);">
+      <div style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2);">Accent colour</div>
+      <div style="font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-3);">Choose a preset or fine-tune with the slider</div>
+      <div style="display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3);">
+        <div class="preset-dots" style="gap: var(--space-2);">
+          <div class="preset-dot active" style="background: hsl(262 68% 55%); width:1.5rem; height:1.5rem;" onclick="setPreset(262, this)" title="Violet"></div>
+          <div class="preset-dot" style="background: hsl(174 68% 40%); width:1.5rem; height:1.5rem;" onclick="setPreset(174, this)" title="Teal"></div>
+          <div class="preset-dot" style="background: hsl(239 68% 55%); width:1.5rem; height:1.5rem;" onclick="setPreset(239, this)" title="Indigo"></div>
+          <div class="preset-dot" style="background: hsl(346 68% 55%); width:1.5rem; height:1.5rem;" onclick="setPreset(346, this)" title="Rose"></div>
+          <div class="preset-dot" style="background: hsl(38 68% 50%); width:1.5rem; height:1.5rem;" onclick="setPreset(38, this)" title="Amber"></div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: var(--space-3);">
+        <input type="range" class="hue-slider" id="hueSlider" min="0" max="360" value="262"
+               oninput="onHue(this.value)" title="Fine-tune accent"
+               style="flex:1; width: auto;">
+        <span id="hueValue" style="font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); min-width: 2.5rem; text-align: right;">262&deg;</span>
+      </div>
+    </div>
+
+    {# Font size #}
+    <div style="margin-bottom: var(--space-4);">
+      <div style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2);">Font size</div>
+      <div style="font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-3);">Adjust the base text size across the app</div>
+      <div style="display: flex; align-items: center; gap: var(--space-3);">
+        <span style="font-size: 11px; color: var(--color-text-muted); font-weight: 700;">A</span>
+        <input type="range" class="hue-slider" id="fontSlider" min="13" max="22" value="14" step="1"
+               oninput="onFontSize(this.value)" title="Font size"
+               style="flex:1; width: auto;">
+        <span style="font-size: 18px; color: var(--color-text-muted); font-weight: 700;">A</span>
+        <span id="fontValue" style="font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); min-width: 2.5rem; text-align: right;">14px</span>
+      </div>
+    </div>
+
+    {# Project card size #}
+    <div style="margin-bottom: var(--space-4);">
+      <div style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2);">Project card size</div>
+      <div style="font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-3);">Adjust the minimum width of project cards on the Home grid</div>
+      <div style="display: flex; align-items: center; gap: var(--space-3);">
+        <span style="font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600;">Compact</span>
+        <input type="range" class="hue-slider" id="cardSizeSlider" min="220" max="450" value="280" step="10"
+               oninput="onCardSize(this.value)" title="Card min width"
+               style="flex:1; width: auto;">
+        <span style="font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600;">Wide</span>
+        <span id="cardSizeValue" style="font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); min-width: 2.5rem; text-align: right;">280px</span>
+      </div>
+    </div>
+
+    {# Card animations #}
+    <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); margin-top: var(--space-2);">
+      <div style="font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-3);">Card animations</div>
+      <div style="margin-bottom: var(--space-3);">
+        <div style="font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-2);">Total animation duration when moving cards between columns</div>
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <span style="font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600;">Fast</span>
+          <input type="range" class="hue-slider" id="dragFlowSlider" min="1" max="8" value="2.5" step="0.5"
+                 oninput="onDragFlow(this.value)" title="Drag animation duration"
+                 style="flex:1; width: auto;">
+          <span style="font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600;">Slow</span>
+          <span id="dragFlowValue" style="font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); min-width: 2.5rem; text-align: right;">2.5s</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-2);">Glow duration after card lands (% of total)</div>
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <span style="font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600;">Brief</span>
+          <input type="range" class="hue-slider" id="pulseRatioSlider" min="20" max="80" value="70" step="5"
+                 oninput="onPulseRatio(this.value)" title="Glow duration ratio"
+                 style="flex:1; width: auto;">
+          <span style="font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600;">Long</span>
+          <span id="pulseRatioValue" style="font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); min-width: 2.5rem; text-align: right;">70%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>{# end appearance tab #}
+
+  {# ══════════════════════════════════════════════════════════
+     TAB: Account — admin info-grid style
+     ══════════════════════════════════════════════════════════ #}
+  <div class="cfg-tab-content" id="cfg-account">
+
+  <div class="cfg-section">
+    <h3>&#128196; Profile</h3>
+    <p style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:0.75rem;line-height:1.5;">Your display information. Username and email can only be changed by Super Admin.</p>
+    <div class="cfg-info-grid">
+      <div class="cfg-info-item"><span class="cfg-info-label">Username</span><span class="cfg-info-value">{{ current_user.username or '—' }}</span></div>
+      <div class="cfg-info-item"><span class="cfg-info-label">Role</span><span class="cfg-info-value"><span class="cfg-badge cfg-badge-role">{{ current_user.role }}</span></span></div>
+      <div class="cfg-info-item"><span class="cfg-info-label">Display Name</span><span class="cfg-info-value">{{ current_user.display_name }}</span></div>
+      <div class="cfg-info-item"><span class="cfg-info-label">Email</span><span class="cfg-info-value">{{ current_user.email }}</span></div>
+      {% if current_user.display_role %}
+      <div class="cfg-info-item"><span class="cfg-info-label">Title</span><span class="cfg-info-value">{{ current_user.display_role }}</span></div>
+      {% endif %}
+      {% if current_user.nickname %}
+      <div class="cfg-info-item"><span class="cfg-info-label">Nickname</span><span class="cfg-info-value">{{ current_user.nickname }}</span></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h3>&#128275; Change Password</h3>
+    <div style="max-width:400px;">
+      <div class="cfg-form-row">
+        <div class="cfg-form-field">
+          <label>Current Password</label>
+          <div class="pw-wrap">
+            <input type="password" id="currentPass" placeholder="Current password" autocomplete="off">
+            <button type="button" class="pw-peek" onclick="togglePw('currentPass',this)" title="Show/hide">&#128065;</button>
+          </div>
+        </div>
+      </div>
+      <div class="cfg-form-row">
+        <div class="cfg-form-field">
+          <label>New Password <span style="font-size:0.45rem;color:var(--color-text-dim);letter-spacing:0">(min 12, upper+lower+number+symbol)</span></label>
+          <div class="pw-wrap">
+            <input type="password" id="newPass" placeholder="New password" autocomplete="off">
+            <button type="button" class="pw-peek" onclick="togglePw('newPass',this)" title="Show/hide">&#128065;</button>
+          </div>
+        </div>
+      </div>
+      <div class="cfg-btn-row">
+        <button class="cfg-btn cfg-btn-primary" onclick="changePassword()">Change Password</button>
+        <span id="passMsg" style="font-family:var(--font-mono);font-size:var(--text-xs);min-height:1rem;"></span>
+      </div>
+    </div>
+  </div>
+
+  </div>{# end account tab #}
+
+  {# ══════════════════════════════════════════════════════════
+     TAB: Agents — admin layout with 2-column (list + help)
+     ══════════════════════════════════════════════════════════ #}
+  <div class="cfg-tab-content" id="cfg-agents">
+  <div style="display:flex;gap:1.5rem;">
+
+    {# Left column: Agent list + create #}
+    <div style="flex:1;min-width:0;">
+
+    {% if can_manage_agents %}
+      <div class="cfg-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <h3 style="margin-bottom:0">&#129302; My Project Agents</h3>
+          <button class="cfg-btn cfg-btn-primary" onclick="document.getElementById('createAgentForm').style.display=document.getElementById('createAgentForm').style.display==='none'?'block':'none'">+ Create Agent</button>
+        </div>
+        <p style="font-size:var(--text-xs);color:var(--color-text-muted);margin:0.5rem 0 1rem;line-height:1.5;">
+          AI agents scoped to your projects. Each agent has a unique token for API access. Tokens are shown once at creation.
+        </p>
+
+        {# Create Agent Form — toggleable #}
+        <div id="createAgentForm" style="display:none;border:1px solid var(--color-border);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem;background:var(--color-surface-sub);">
+          <div style="font-family:var(--font-mono);font-size:0.65rem;font-weight:600;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.75rem;">New Agent</div>
+          <div class="cfg-form-row">
+            <div class="cfg-form-field">
+              <label>Project</label>
+              <select id="caProject">
+                {% for proj in owned_projects %}<option value="{{ proj.slug }}">{{ proj.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="cfg-form-field">
+              <label>Model Type</label>
+              <select id="caModel">
+                <option value="claude">Claude</option><option value="codex">Codex</option><option value="custom">Custom</option>
+              </select>
+            </div>
+          </div>
+          <div class="cfg-form-row">
+            <div class="cfg-form-field">
+              <label>Agent Name</label>
+              <input type="text" id="caName" placeholder="e.g. Claude" maxlength="100">
+            </div>
+            <div class="cfg-form-field">
+              <label>Description</label>
+              <input type="text" id="caDesc" placeholder="What this agent does">
+            </div>
+          </div>
+          {# VF-342: eternal-token toggle (default UNCHECKED). Hint shows on check. #}
+          <div style="margin:0.6rem 0 0.4rem;">
+            <label style="display:flex;align-items:center;gap:0.45rem;font-family:var(--font-mono);font-size:0.65rem;cursor:pointer;color:var(--color-text);">
+              <input type="checkbox" id="caEternal" onchange="document.getElementById('caEternalHint').style.display=this.checked?'block':'none';document.getElementById('caTtlInfo').style.display=this.checked?'none':'block';">
+              <span>Eternal token (no expiry)</span>
+            </label>
+            <div id="caTtlInfo" style="margin-top:0.3rem;font-family:var(--font-mono);font-size:0.55rem;color:var(--color-text-muted);">Default: token expires in 90 days. Cycle to extend.</div>
+            <div id="caEternalHint" class="cfg-eternal-hint" style="display:none;">
+              <strong>&#9888; Eternal tokens never expire automatically.</strong> Use only for operational agents (boards, CI, batch jobs). Manual revoke is the only kill switch — there is no expiry safety net.
+            </div>
+          </div>
+          <div class="cfg-btn-row">
+            <button class="cfg-btn cfg-btn-primary" onclick="createAgentFromConfig()">Create &amp; Generate Token</button>
+            <span id="caMsg" style="font-family:var(--font-mono);font-size:var(--text-xs);"></span>
+          </div>
+        </div>
+
+        {# Agent list grouped by project #}
+        {% for proj in owned_projects %}
+        <div style="margin-bottom:1rem;">
+          <div style="font-family:var(--font-mono);font-size:0.6rem;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.4rem;">
+            {{ proj.name }}{% if current_user and proj.owner_id != current_user.id %} <span style="font-size:0.5rem;color:var(--color-text-muted);">(not your project)</span>{% endif %}
+          </div>
+          {% set proj_agents = user_agents | selectattr('project_slug', 'equalto', proj.slug) | list %}
+          {% set is_other = current_user and proj.owner_id != current_user.id %}
+          {% for a in proj_agents %}
+          <div class="cfg-agent-row">
+            <div class="cfg-agent-dot {% if a.status == 'active' %}cfg-dot-active{% else %}cfg-dot-revoked{% endif %}"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-family:var(--font-mono);font-size:0.72rem;font-weight:600;{% if a.status == 'revoked' %}text-decoration:line-through;opacity:0.4{% endif %}">{% if is_other %}&#128274; {% endif %}{{ a.name }}</div>
+              <div style="font-family:var(--font-mono);font-size:0.55rem;color:var(--color-text-muted);">{{ a.model_name or a.model_type or '—' }} &middot; {{ a.token_display }}</div>
+            </div>
+            {# VF-342: token expiry chip — visible only on active agents with a live token #}
+            {% if a.status == 'active' and a.has_token %}
+              {% if a.expiry_state == 'eternal' %}
+                <span class="cfg-exp-chip cfg-exp-eternal" title="Eternal token — never expires automatically. Manual revoke is the only kill switch.">&#9888; Eternal</span>
+              {% elif a.expiry_state == 'expired' %}
+                <span class="cfg-exp-chip cfg-exp-expired" title="Token TTL has elapsed. Cycle to issue new credentials.">Expired</span>
+              {% elif a.expiry_state == 'red' %}
+                <span class="cfg-exp-chip cfg-exp-red" title="Token expires in {{ a.expires_in_days }} day(s). Cycle soon.">Expires {{ a.expires_in_days }}d</span>
+              {% elif a.expiry_state == 'amber' %}
+                <span class="cfg-exp-chip cfg-exp-amber" title="Token expires in {{ a.expires_in_days }} day(s).">Expires {{ a.expires_in_days }}d</span>
+              {% elif a.expiry_state == 'ok' %}
+                <span class="cfg-exp-chip cfg-exp-ok" title="Token TTL healthy.">{{ a.expires_in_days }}d left</span>
+              {% endif %}
+            {% endif %}
+            {% if a.status == 'active' and a.has_token %}
+            <button class="cfg-btn cfg-btn-primary" onclick="showOnboardPrompt('{{ a.id }}','{{ a.name }}')">&#128640; Prompt</button>
+            <button class="cfg-btn cfg-btn-cycle" onclick="cycleAgentToken('{{ a.id }}','{{ a.name }}',{{ 'true' if is_other else 'false' }})">&#8635; Cycle</button>
+            <button class="cfg-btn cfg-btn-revoke" onclick="revokeAgentFromConfig('{{ a.id }}','{{ a.name }}',{{ 'true' if is_other else 'false' }})">Revoke</button>
+            {% elif a.status == 'active' and not a.has_token %}
+            <button class="cfg-btn cfg-btn-cycle" onclick="cycleAgentToken('{{ a.id }}','{{ a.name }}',{{ 'true' if is_other else 'false' }})">&#128273; Issue New Token</button>
+            <button class="cfg-btn cfg-btn-revoke" onclick="revokeAgentFromConfig('{{ a.id }}','{{ a.name }}',{{ 'true' if is_other else 'false' }})">Revoke</button>
+            {% elif a.status == 'revoked' %}
+            <button class="cfg-btn cfg-btn-restore" onclick="restoreAgentFromConfig('{{ a.id }}','{{ a.name }}',{{ 'true' if is_other else 'false' }})">Restore</button>
+            {% endif %}
+          </div>
+          {% else %}
+          <div style="font-size:0.72rem;color:var(--color-text-muted);font-style:italic;padding:0.4rem 0.75rem;">No agents on this project yet.</div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+
+    {% else %}
+      {# Non-owner — padlock barrier #}
+      <div class="cfg-section" style="position:relative;min-height:180px;">
+        <div class="cfg-padlock">
+          <div style="text-align:center;padding:var(--space-4);">
+            <div style="font-size:2rem;margin-bottom:var(--space-2);">&#128274;</div>
+            <div style="font-size:var(--text-sm);font-weight:600;color:var(--color-text);">Agent management requires project ownership</div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-top:var(--space-2);line-height:1.5;">
+              Contact your project owner, Super User, or Super Admin<br>to create or manage agents for this project.
+            </div>
+          </div>
+        </div>
+        <h3>&#129302; Project Agents</h3>
+      </div>
+    {% endif %}
+
+    </div>{# end left column #}
+
+    {# Right column: Help panel #}
+    <div style="width:240px;flex-shrink:0;">
+      <div class="cfg-section" style="font-size:var(--text-xs);line-height:1.6;">
+        <h4 style="font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;margin-bottom:var(--space-2);color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.06em;">&#128218; Agent Help</h4>
+
+        <div style="margin-bottom:0.75rem;">
+          <div style="font-weight:600;margin-bottom:0.2rem;">What are agents?</div>
+          <div style="color:var(--color-text-muted);">AI assistants (Claude, Codex, etc.) that work on your project via API. Each agent has a unique token scoped to one project.</div>
+        </div>
+
+        <div style="margin-bottom:0.75rem;">
+          <div style="font-weight:600;margin-bottom:0.2rem;">Token security</div>
+          <div style="color:var(--color-text-muted);">Tokens are shown <strong>once</strong> at creation. Store securely. Use the <strong>Download agent-token.txt</strong> button for secure file handoff.</div>
+        </div>
+
+        <div style="margin-bottom:0.75rem;">
+          <div style="font-weight:600;margin-bottom:0.2rem;">Onboarding an agent</div>
+          <div style="color:var(--color-text-muted);">
+            1. Create agent here or in Admin Panel<br>
+            2. Download <code>agent-token.txt</code> file<br>
+            3. Copy onboarding prompt from Admin<br>
+            4. Paste prompt into agent session<br>
+            5. Agent reads token, configures, deletes file
+          </div>
+        </div>
+
+        <div>
+          <div style="font-weight:600;margin-bottom:0.2rem;">Cycle vs Revoke</div>
+          <div style="color:var(--color-text-muted);"><strong>Cycle</strong>: new token, same identity. Use when token may be compromised.<br><strong>Revoke</strong>: agent deactivated. Must cycle after restore.</div>
+        </div>
+      </div>
+    </div>{# end right column #}
+
+  </div>
+  </div>{# end agents tab #}
+
+  {# ══════════════════════════════════════════════════════════
+     VF-325 / T4 — Certificate tab.
+     Every authenticated user can see this (trust-bootstrap UX). The cert
+     info card is the same shared partial used on /admin/portal/configuration/certificates — here
+     with ca_download_allowed=True so any user can download the Caddy
+     internal CA bundle when it's active (no admin gate, per the thesis).
+     Cross-links VF-234 (trust commitments documentation).
+     ══════════════════════════════════════════════════════════ #}
+  <div class="cfg-tab-content" id="cfg-certificate">
+    <div class="admin-section-header" style="margin-bottom:var(--space-3);">
+      <h3 style="margin-bottom:0;">&#x1F512; Certificate</h3>
+      <p class="help-text" style="margin-top:var(--space-2);">
+        Details of the TLS certificate currently serving this install. If your
+        deployment uses the Caddy internal CA (common on LAN / home-lab setups),
+        download the CA bundle below and install it in your browser's trust
+        store once — after that, HTTPS on this server will be trusted on this
+        device without warnings.
+      </p>
+    </div>
+
+    <div style="max-width: 640px;">
+      {% with ca_download_allowed = True %}
+        {% include "ui/_cert_info_card.html" %}
+      {% endwith %}
+    </div>
+
+    <div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-sub, rgba(15,23,42,0.25));border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--text-xs);color:var(--color-text-muted);max-width:640px;">
+      <strong style="color:var(--color-text);">Why this tab exists.</strong><br>
+      The same cert information is visible via any browser's padlock icon, but
+      reaching it takes several clicks and most people never do. Surfacing it
+      here makes the trust-bootstrap step one click. When the install uses a
+      public cert (Let's Encrypt, or a commercial CA) no install is needed —
+      this tab becomes informational only.
+    </div>
+  </div>{# end certificate tab #}
+
+  {# ══════════════════════════════════════════════════════════
+     TAB: Administration — link to SA panel
+     ══════════════════════════════════════════════════════════ #}
+  <div class="cfg-tab-content" id="cfg-admin">
+  <div class="cfg-section">
+    <h3>&#128274; System Administration</h3>
+    <p style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:1rem;line-height:1.5;">
+      User management, agent tokens, audit logs, system configuration.<br>
+      Requires Super Admin credentials to access.
+    </p>
+    <a href="/admin/portal/" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;background:var(--color-surface-sub);border:1px solid var(--color-border);border-radius:8px;text-decoration:none;transition:border-color 0.15s;max-width:400px;" onmouseover="this.style.borderColor='hsl(var(--hue) 68% 55%)'" onmouseout="this.style.borderColor=''">
+      <span style="font-size:1.2rem">&#128274;</span>
+      <div style="flex:1">
+        <div style="font-size:var(--text-sm);font-weight:600;color:var(--color-text);">Open Admin Portal</div>
+        <div style="font-size:var(--text-xs);color:var(--color-text-muted);">Manage users, agents, view audit logs</div>
+      </div>
+      <span style="color:var(--color-text-muted);font-size:var(--text-sm);">&#8594;</span>
+    </a>
+  </div>
+  </div>{# end admin tab #}
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── Slider sync ── */
+(function() {
+  var hueSlider = document.getElementById('hueSlider');
+  var fontSlider = document.getElementById('fontSlider');
+  var hueValue = document.getElementById('hueValue');
+  var fontValue = document.getElementById('fontValue');
+
+  if (hueSlider && hueValue) {
+    var origOnHue = window.onHue;
+    window.onHue = function(v) { origOnHue(v); hueValue.textContent = v + '\u00b0'; };
+    hueValue.textContent = hueSlider.value + '\u00b0';
+  }
+  if (fontSlider && fontValue) {
+    var origOnFont = window.onFontSize;
+    window.onFontSize = function(v) { origOnFont(v); fontValue.textContent = v + 'px'; };
+    fontValue.textContent = fontSlider.value + 'px';
+  }
+
+  var cardSizeSlider = document.getElementById('cardSizeSlider');
+  var cardSizeValue = document.getElementById('cardSizeValue');
+  if (cardSizeSlider && cardSizeValue) {
+    window.onCardSize = function(v) {
+      document.documentElement.style.setProperty('--mc-card-min', v + 'px');
+      cardSizeValue.textContent = v + 'px';
+      saveTheme();
+    };
+    try { var saved = JSON.parse(localStorage.getItem('vf-theme') || '{}');
+      if (saved.cardSize) { cardSizeSlider.value = saved.cardSize; cardSizeValue.textContent = saved.cardSize + 'px'; }
+    } catch(e) {}
+  }
+
+  var dragFlowSlider = document.getElementById('dragFlowSlider');
+  var dragFlowValue = document.getElementById('dragFlowValue');
+  if (dragFlowSlider && dragFlowValue) {
+    var origOnDrag = window.onDragFlow;
+    window.onDragFlow = function(v) { origOnDrag(v); dragFlowValue.textContent = parseFloat(v).toFixed(1) + 's'; };
+    dragFlowValue.textContent = parseFloat(dragFlowSlider.value).toFixed(1) + 's';
+  }
+
+  var pulseRatioSlider = document.getElementById('pulseRatioSlider');
+  var pulseRatioValue = document.getElementById('pulseRatioValue');
+  if (pulseRatioSlider && pulseRatioValue) {
+    var origOnPulse = window.onPulseRatio;
+    window.onPulseRatio = function(v) { origOnPulse(v); pulseRatioValue.textContent = v + '%'; };
+    pulseRatioValue.textContent = pulseRatioSlider.value + '%';
+  }
+})();
+
+/* ── Tab switching with hash persistence ── */
+function showCfgTab(id, el) {
+  document.querySelectorAll('.config-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.cfg-tab-content').forEach(function(c) { c.classList.remove('active'); });
+  el.classList.add('active');
+  document.getElementById('cfg-' + id).classList.add('active');
+  history.replaceState(null, '', '#' + id);
+}
+/* FLOW: Restore tab from URL hash on load */
+(function() {
+  var h = location.hash.replace('#', '');
+  if (h) {
+    var tab = document.querySelector('.config-tab[onclick*="' + h + '"]');
+    if (tab) showCfgTab(h, tab);
+  }
+})();
+
+/* ── Password ── */
+function togglePw(id, btn) {
+  var el = document.getElementById(id);
+  if (el.type === 'password') { el.type = 'text'; btn.style.opacity = '1'; }
+  else { el.type = 'password'; btn.style.opacity = '0.5'; }
+}
+
+function changePassword() {
+  var msg = document.getElementById('passMsg');
+  fetch('/ui/change-password', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      current_password: document.getElementById('currentPass').value,
+      new_password: document.getElementById('newPass').value,
+    }),
+  }).then(function(r) { return r.json().then(function(d) {
+    if (r.ok) {
+      msg.style.color = '#10b981'; msg.textContent = 'Password changed';
+      document.getElementById('currentPass').value = '';
+      document.getElementById('newPass').value = '';
+    } else {
+      msg.style.color = '#ef4444'; msg.textContent = d.detail || 'Failed';
+    }
+  }); });
+}
+
+/* ── MC-style confirm dialog ── */
+function _mcConfirm(title, msg, btnLabel, onOk) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML = '<div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:1.5rem 2rem;max-width:420px">' +
+    '<div style="font-size:0.9rem;font-weight:700;color:var(--color-text);margin-bottom:0.5rem">' + title + '</div>' +
+    '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:1.25rem;line-height:1.5">' + msg + '</div>' +
+    '<div style="display:flex;gap:0.5rem;justify-content:flex-end">' +
+    '<button class="cfg-btn cfg-btn-ghost" onclick="this.closest(\'div[style*=fixed]\').remove()">Cancel</button>' +
+    '<button id="_mcOk" class="cfg-btn cfg-btn-primary">' + (btnLabel || 'Confirm') + '</button>' +
+    '</div></div>';
+  ov.querySelector('#_mcOk').addEventListener('click', function() { ov.remove(); onOk(); });
+  document.body.appendChild(ov);
+}
+
+/* ── Token overlay with copy + download .agent-token ── */
+var _pendingToken = null;
+function _showAgentTokenOverlay(token, agentName, downloadUrl) {
+  _pendingToken = token;
+  var _dlUrl = downloadUrl || null;  // VF-303: server-streamed same-origin download
+  var ov = document.createElement('div');
+  ov.id = '_tokenOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:9999';
+
+  var card = document.createElement('div');
+  card.style.cssText = 'background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:2rem;max-width:480px;text-align:center';
+
+  /* Header */
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:0.7rem;color:hsl(var(--hue) 68% 55%);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.75rem';
+  hdr.textContent = 'Token for ' + agentName + ' \u2014 Shown Once';
+  card.appendChild(hdr);
+
+  /* Token display */
+  var tknWrap = document.createElement('div');
+  tknWrap.style.cssText = 'position:relative;margin-bottom:0.75rem';
+  var tknText = document.createElement('div');
+  tknText.style.cssText = 'font-family:var(--font-mono);font-size:0.8rem;color:var(--color-text);background:var(--color-surface-sub);border:1px solid var(--color-border);border-radius:8px;padding:0.75rem;user-select:all;word-break:break-all';
+  tknText.textContent = token;
+  var copiedBadge = document.createElement('div');
+  copiedBadge.id = '_copiedBadge2';
+  copiedBadge.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--color-surface);border:1px solid rgba(16,185,129,0.4);border-radius:8px;font-family:var(--font-mono);font-size:1.1rem;font-weight:700;color:#10b981;opacity:0;pointer-events:none;transition:opacity 0.15s';
+  copiedBadge.innerHTML = '&#10003; COPIED!';
+  tknWrap.appendChild(tknText);
+  tknWrap.appendChild(copiedBadge);
+  card.appendChild(tknWrap);
+
+  /* .agent-config template */
+  var cfgLabel = document.createElement('div');
+  cfgLabel.style.cssText = 'font-size:0.55rem;color:hsl(var(--hue) 68% 55%);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;text-align:left';
+  cfgLabel.textContent = '.agent-config template';
+  card.appendChild(cfgLabel);
+  var cfgText = document.createElement('div');
+  cfgText.style.cssText = 'font-family:var(--font-mono);font-size:0.65rem;color:var(--color-text-muted);background:var(--color-bg);border:1px solid var(--color-border);border-radius:6px;padding:0.5rem 0.75rem;text-align:left;margin-bottom:0.75rem;cursor:pointer;user-select:all;word-break:break-all';
+  cfgText.textContent = 'VIBEFORGE_API=' + window.location.origin + '/api/v2\nVIBEFORGE_TOKEN=' + token + '\nVIBEFORGE_PROJECT={{ project.slug if project else "your-project-slug" }}';
+  cfgText.title = 'Click to copy';
+  cfgText.onclick = function() { navigator.clipboard.writeText(cfgText.textContent); cfgText.style.borderColor = '#10b981'; setTimeout(function(){ cfgText.style.borderColor = ''; }, 1500); };
+  card.appendChild(cfgText);
+
+  /* Warning */
+  var warn = document.createElement('div');
+  warn.style.cssText = 'font-size:0.55rem;color:var(--color-text-muted);margin-bottom:1rem';
+  warn.textContent = 'Store securely. Never share in chat. This will not be shown again.';
+  card.appendChild(warn);
+
+  /* Buttons */
+  var btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap';
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'cfg-btn cfg-btn-primary';
+  copyBtn.textContent = 'Copy';
+  copyBtn.onclick = function() {
+    navigator.clipboard.writeText(_pendingToken);
+    copiedBadge.style.opacity = '1';
+    setTimeout(function() { copiedBadge.style.opacity = '0'; }, 1200);
+  };
+  btns.appendChild(copyBtn);
+
+  /* FLOW: Download agent-token file for secure handoff.
+     VF-303: prefer the server-streamed same-origin GET (no SmartScreen delay).
+     Fall back to a client-side Blob if the server didn't return a download_url
+     (shouldn't happen post-migration, but defensive). */
+  var dlBtn;
+  if (_dlUrl) {
+    dlBtn = document.createElement('a');
+    dlBtn.className = 'cfg-btn cfg-btn-cycle';
+    dlBtn.href = _dlUrl;
+    dlBtn.setAttribute('download', 'agent-token.txt');
+    dlBtn.style.textDecoration = 'none';
+    dlBtn.innerHTML = '&#11015; Download File';
+  } else {
+    dlBtn = document.createElement('button');
+    dlBtn.className = 'cfg-btn cfg-btn-cycle';
+    dlBtn.innerHTML = '&#11015; Download File';
+    dlBtn.onclick = function() {
+      if (!_pendingToken) { console.error('No pending token to download'); return; }
+      try {
+        var b = new Blob([_pendingToken + '\n'], {type: 'text/plain'});
+        var url = URL.createObjectURL(b);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'agent-token.txt';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() {
+          try { document.body.removeChild(a); } catch (e) {}
+          URL.revokeObjectURL(url);
+        }, 2000);
+      } catch (e) {
+        console.error('Download failed:', e);
+        vfToast('Download failed: ' + e.message);
+      }
+    };
+  }
+  btns.appendChild(dlBtn);
+
+  var doneBtn = document.createElement('button');
+  doneBtn.className = 'cfg-btn cfg-btn-restore';
+  doneBtn.textContent = "I've Stored It";
+  doneBtn.onclick = function() { ov.remove(); _pendingToken = null; location.reload(); };
+  btns.appendChild(doneBtn);
+
+  card.appendChild(btns);
+  ov.appendChild(card);
+  document.body.appendChild(ov);
+}
+
+/* ── Agent CRUD ── */
+function createAgentFromConfig() {
+  var msg = document.getElementById('caMsg');
+  msg.style.color = ''; msg.textContent = '';
+  var eternalEl = document.getElementById('caEternal');
+  fetch('/ui/api/agents', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: document.getElementById('caName').value.trim(),
+      project_slug: document.getElementById('caProject').value,
+      model_type: document.getElementById('caModel').value,
+      description: document.getElementById('caDesc').value.trim(),
+      eternal: !!(eternalEl && eternalEl.checked),
+    }),
+  }).then(function(r) { return r.json().then(function(d) {
+    if (r.ok) {
+      _showAgentTokenOverlay(d.token, d.name, d.download_url);
+    } else {
+      msg.style.color = '#ef4444';
+      msg.textContent = d.detail || 'Failed';
+    }
+  }); }).catch(function(e) {
+    msg.style.color = '#ef4444';
+    msg.textContent = 'Network error';
+  });
+}
+
+/* GATE: SU acting on cross-project agents gets an extra warning prompt */
+function _crossProjectGuard(agentName, action, onOk) {
+  _mcConfirm(
+    '\u26a0 Cross-project ' + action,
+    '<strong>' + agentName + '</strong> belongs to a project you do not own. As a Super User you can still ' + action.toLowerCase() + ' it, but the project owner will not have been consulted. Proceed?',
+    'Yes, ' + action,
+    onOk
+  );
+}
+
+function cycleAgentToken(agentId, agentName, isOther) {
+  var doCycle = function() {
+    _mcConfirm('Issue Token', 'A new token will be generated for ' + agentName + '. Any existing token (if any) dies immediately and active sessions will disconnect.', 'Issue', function() {
+      fetch('/ui/api/agents/' + agentId + '/cycle', {method:'POST'}).then(function(r) {
+        return r.json().then(function(d) {
+          if (r.ok) { _showAgentTokenOverlay(d.token, agentName, d.download_url); }
+          else { vfToast(d.detail || 'Failed'); }
+        });
+      });
+    });
+  };
+  if (isOther) { _crossProjectGuard(agentName, 'Issue Token', doCycle); } else { doCycle(); }
+}
+
+function revokeAgentFromConfig(agentId, agentName, isOther) {
+  var doRevoke = function() {
+    _mcConfirm('Revoke ' + agentName, 'Token will be destroyed immediately. Any tasks assigned to this agent become read-only until reassigned.', 'Revoke', function() {
+      fetch('/ui/api/agents/' + agentId + '/revoke', {method:'POST'}).then(function(r) {
+        return r.json().then(function(d) {
+          if (r.ok) { location.reload(); }
+          else { vfToast(d.detail || 'Failed'); }
+        });
+      });
+    });
+  };
+  if (isOther) { _crossProjectGuard(agentName, 'Revoke', doRevoke); } else { doRevoke(); }
+}
+
+function restoreAgentFromConfig(agentId, agentName, isOther) {
+  var doRestore = function() {
+    _mcConfirm('Restore ' + agentName, 'Agent will be reactivated. You must cycle the token after to issue new credentials.', 'Restore', function() {
+      fetch('/ui/api/agents/' + agentId + '/restore', {method:'POST'}).then(function(r) {
+        return r.json().then(function(d) {
+          if (r.ok) { location.reload(); }
+          else { vfToast(d.detail || 'Failed'); }
+        });
+      });
+    });
+  };
+  if (isOther) { _crossProjectGuard(agentName, 'Restore', doRestore); } else { doRestore(); }
+}
+
+/* ── Onboarding prompt overlay ── */
+function showOnboardPrompt(agentId, agentName) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:9999';
+
+  var card = document.createElement('div');
+  card.style.cssText = 'background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:1.5rem 2rem;max-width:600px;width:90vw';
+
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem';
+  hdr.innerHTML = '<div style="font-family:var(--font-mono);font-size:0.7rem;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.06em">Onboarding Prompt — ' + agentName + '</div>';
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'cfg-btn cfg-btn-primary';
+  copyBtn.textContent = 'Copy Prompt';
+  copyBtn.onclick = function() {
+    navigator.clipboard.writeText(pre.textContent);
+    copyBtn.textContent = 'Copied!';
+    copyBtn.style.color = '#10b981';
+    copyBtn.style.borderColor = 'rgba(16,185,129,0.3)';
+    setTimeout(function() {
+      copyBtn.textContent = 'Copy Prompt';
+      copyBtn.style.color = '';
+      copyBtn.style.borderColor = '';
+    }, 1500);
+  };
+  hdr.appendChild(copyBtn);
+  card.appendChild(hdr);
+
+  var pre = document.createElement('pre');
+  pre.style.cssText = 'font-family:var(--font-mono);font-size:0.65rem;color:var(--color-text-muted);background:var(--color-surface-sub);border:1px solid var(--color-border);border-radius:8px;padding:1rem;overflow-x:auto;white-space:pre-wrap;line-height:1.6;max-height:50vh;overflow-y:auto';
+  pre.textContent = 'Loading...';
+  card.appendChild(pre);
+
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:0.55rem;color:var(--color-text-muted);margin-top:0.75rem;line-height:1.5';
+  hint.textContent = 'Copy and paste this into your agent session to begin onboarding.';
+  card.appendChild(hint);
+
+  var footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;justify-content:flex-end;margin-top:1rem';
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'cfg-btn cfg-btn-ghost';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { ov.remove(); };
+  footer.appendChild(closeBtn);
+  card.appendChild(footer);
+
+  ov.appendChild(card);
+  ov.addEventListener('click', function(e) { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+
+  fetch('/ui/api/agents/' + agentId + '/onboard-prompt')
+    .then(function(r) { return r.json(); })
+    .then(function(d) { pre.textContent = d.prompt; })
+    .catch(function() { pre.textContent = 'Failed to load prompt.'; });
+}
+</script>
+{% endblock %}

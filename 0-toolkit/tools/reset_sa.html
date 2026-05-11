@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-preset="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>reset_sa — Super Admin Password Reset</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* ============ TOKENS (mirror app/static/css/tokens.css — admin portal palette) ============ */
+  :root {
+    --hue: 262;
+    --color-brand: hsl(var(--hue) 68% 55%);
+    --color-brand-hover: hsl(var(--hue) 68% 48%);
+    --color-brand-text: hsl(var(--hue) 68% 75%);
+    --color-bg: #0a0f1e;
+    --color-surface: rgba(15, 23, 42, 0.85);
+    --color-surface-sub: rgba(20, 30, 50, 0.9);
+    --color-sidebar: #060b16;
+    --color-border: rgba(124, 58, 237, 0.18);
+    --color-border-strong: rgba(124, 58, 237, 0.35);
+    --color-text: #e2e8f0;
+    --color-text-muted: #94a3b8;
+    --color-text-subtle: #64748b;
+    --color-done: #10b981;
+    --color-amber: #f59e0b;
+    --color-blocked: #ef4444;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.4);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    background-image:
+      radial-gradient(ellipse at top left, rgba(124, 58, 237, 0.10), transparent 50%),
+      radial-gradient(ellipse at bottom right, rgba(56, 189, 248, 0.06), transparent 55%);
+    background-attachment: fixed;
+    color: var(--color-text);
+    line-height: 1.65;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 99px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ============ TOPBAR ============ */
+  .topbar-glow {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--color-brand), #38bdf8, var(--color-brand), transparent);
+    position: sticky;
+    top: 0;
+    z-index: 11;
+  }
+  .topbar {
+    background: var(--color-surface);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--color-border);
+    padding: 0.7rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    position: sticky;
+    top: 2px;
+    z-index: 10;
+  }
+  .brand-block { display: flex; flex-direction: column; gap: 1px; }
+  .brand {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--color-brand-text);
+    letter-spacing: 0.02em;
+  }
+  .brand-sub {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+  }
+  .topbar-meta {
+    margin-left: auto;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .audience-pill {
+    padding: 0.22rem 0.65rem;
+    border-radius: 99px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    border: 1px solid;
+    font-family: var(--font-mono);
+  }
+  .audience-pill.public {
+    background: rgba(124, 58, 237, 0.15);
+    color: var(--color-brand-text);
+    border-color: rgba(124, 58, 237, 0.4);
+  }
+  .audience-pill.internal {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--color-amber);
+    border-color: rgba(245, 158, 11, 0.4);
+  }
+  .audience-pill.confidential {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--color-blocked);
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  .audience-pill.index {
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--color-text-muted);
+    border-color: rgba(148, 163, 184, 0.35);
+  }
+
+  /* ============ LAYOUT ============ */
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .sidebar {
+    border-right: 1px solid var(--color-border);
+    padding: 1.5rem 1.25rem;
+    position: sticky;
+    top: 50px;
+    align-self: start;
+    max-height: calc(100vh - 50px);
+    overflow-y: auto;
+    background: rgba(6, 11, 22, 0.4);
+  }
+  .sidebar-kicker {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--color-brand-text);
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    margin-bottom: 0.85rem;
+    font-weight: 700;
+  }
+  .toc { list-style: none; }
+  .toc li { margin: 0.15rem 0; }
+  .toc a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-size: 0.78rem;
+    display: block;
+    padding: 0.25rem 0.5rem;
+    border-left: 2px solid transparent;
+    transition: all 150ms ease;
+    border-bottom: none;
+  }
+  .toc a:hover {
+    color: var(--color-text);
+    border-left-color: var(--color-brand);
+    background: rgba(124, 58, 237, 0.06);
+  }
+  .toc-l1 > a { color: var(--color-text); font-weight: 600; }
+  .toc-l2 > a { padding-left: 1.2rem; }
+  .toc-l3 > a { padding-left: 2rem; font-size: 0.72rem; }
+
+  /* ============ CONTENT ============ */
+  .content {
+    padding: 2rem 2.5rem 4rem;
+    max-width: 920px;
+  }
+
+  /* Doc meta card (frontmatter — violet stripe like wizard cards) */
+  .doc-meta {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.25rem 1rem 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow-card);
+    position: relative;
+    overflow: hidden;
+  }
+  .doc-meta::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: linear-gradient(180deg, var(--color-brand), #38bdf8);
+  }
+  .doc-meta dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.35rem 1rem;
+    font-size: 0.78rem;
+  }
+  .doc-meta dl > div { display: contents; }
+  .doc-meta dt {
+    color: var(--color-text-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-size: 0.62rem;
+    font-weight: 700;
+    align-self: center;
+    font-family: var(--font-mono);
+  }
+  .doc-meta dd { color: var(--color-text); align-self: center; }
+
+  /* ============ TYPOGRAPHY ============ */
+  h1 {
+    font-size: 1.85rem;
+    color: var(--color-text);
+    margin: 2rem 0 0.6rem;
+    font-weight: 700;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0.5rem;
+    letter-spacing: -0.01em;
+  }
+  h1:first-of-type { margin-top: 0.5rem; }
+  h2 {
+    font-size: 1.3rem;
+    color: var(--color-brand-text);
+    margin: 2.25rem 0 0.5rem;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+  }
+  h2::before {
+    content: '// ';
+    color: var(--color-brand);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    font-weight: 700;
+    opacity: 0.7;
+  }
+  h3 {
+    font-size: 1.05rem;
+    color: var(--color-text);
+    margin: 1.5rem 0 0.4rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    margin: 1.2rem 0 0.3rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  p { margin: 0.6rem 0; }
+  ul, ol { margin: 0.6rem 0 0.6rem 1.5rem; }
+  li { margin: 0.25rem 0; }
+  li::marker { color: var(--color-brand); }
+
+  blockquote {
+    border-left: 3px solid var(--color-brand);
+    padding: 0.85rem 1.15rem;
+    margin: 1.2rem 0;
+    background: rgba(124, 58, 237, 0.08);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    color: var(--color-text);
+  }
+  blockquote p { margin: 0.3rem 0; }
+  blockquote strong { color: var(--color-brand-text); }
+  blockquote em { color: var(--color-text-muted); }
+
+  code {
+    font-family: var(--font-mono);
+    background: rgba(124, 58, 237, 0.12);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.82em;
+    color: var(--color-brand-text);
+  }
+  .code-block {
+    background: rgba(6, 11, 22, 0.7);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.95rem 1.15rem 0.95rem 1.3rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    position: relative;
+  }
+  .code-block::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 2px; height: 100%;
+    background: var(--color-brand);
+    border-radius: 0 0 0 var(--radius-md);
+  }
+  .code-block code {
+    background: none;
+    color: var(--color-text);
+    padding: 0;
+    font-size: inherit;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px dashed var(--color-border-strong);
+    margin: 2.5rem 0;
+  }
+  a {
+    color: var(--color-brand-text);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(124, 58, 237, 0.5);
+    transition: all 150ms ease;
+  }
+  a:hover {
+    color: var(--color-brand);
+    border-bottom-style: solid;
+  }
+  strong { color: var(--color-text); font-weight: 700; }
+  em { color: var(--color-text); font-style: italic; }
+
+  /* ============ TABLES ============ */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th {
+    background: rgba(124, 58, 237, 0.12);
+    color: var(--color-brand-text);
+    padding: 0.6rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--color-border-strong);
+    text-align: left;
+    font-weight: 700;
+  }
+  td {
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(124, 58, 237, 0.05); }
+  td code { font-size: 0.8em; }
+
+  /* Overview highlight (first paragraph after #overview anchor) */
+  h1#overview + p,
+  h2#overview + p {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.12), transparent);
+    border-left: 3px solid var(--color-brand);
+    padding: 1rem 1.25rem;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  /* ============ MOBILE ============ */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar {
+      position: relative;
+      top: 0;
+      max-height: none;
+      border-right: none;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .content { padding: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar-glow"></div>
+<div class="topbar">
+  <div class="brand-block">
+    <span class="brand">VibeForge+</span>
+    <span class="brand-sub">reset_sa — Super Admin Password Reset</span>
+  </div>
+  <div class="topbar-meta">
+    <span class="audience-pill confidential">Rescue</span>
+  </div>
+</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-kicker">// Rescue (Operator)</div>
+    <ul class="toc">
+<li class="toc-l2"><a href="#quick-reference">Quick reference</a></li>
+<li class="toc-l2"><a href="#what-it-touches">What it touches</a></li>
+<li class="toc-l2"><a href="#example-output">Example output</a></li>
+<li class="toc-l2"><a href="#what-to-do-after-running-it">What to do after running it</a></li>
+<li class="toc-l2"><a href="#failure-modes">Failure modes</a></li>
+<li class="toc-l2"><a href="#source">Source</a></li>
+<li class="toc-l2"><a href="#see-also">See also</a></li>
+</ul>
+  </aside>
+  <main class="content">
+    <div class="doc-meta">
+      <dl>
+        <div><dt>audience</dt><dd>rescue</dd></div>
+        <div><dt>status</dt><dd>Active</dd></div>
+        <div><dt>last updated</dt><dd>2026-04-08</dd></div>
+      </dl>
+    </div>
+    <h1 id="reset_sa--vibeforge-super-admin-password-reset"><code>reset_sa</code> — VibeForge+ Super Admin password reset</h1>
+<p><strong>When to use:</strong> the SA has lost their password and cannot log in. Cannot recover via email (no email integration yet). Cannot use a second SA (only one in the install). The break-glass tool.</p>
+<p><strong>What it does:</strong> generates a random 16-character password, updates the SA user's password hash directly in the database, prints the new password to stdout once. Does NOT send the password anywhere — it's displayed for the operator to copy.</p>
+<p><strong>Tier:</strong> <code>audience: rescue</code> — read in emergencies, not for routine reading.</p>
+<h2 id="quick-reference">Quick reference</h2>
+<pre class="code-block lang-bash"><code># From the VM:
+/opt/vibeforge/scripts/reset_sa.sh
+
+# From host (via SSH):
+ssh vibeforge "/opt/vibeforge/scripts/reset_sa.sh"</code></pre>
+<p>No subcommands. One script, one job. Always idempotent (can be run multiple times — each run generates a fresh random password).</p>
+<h2 id="what-it-touches">What it touches</h2>
+<ul>
+  <li><strong>Database:</strong> the <code>users</code> table, specifically the row where <code>role = 'super_admin'</code></li>
+  <li><strong>Filesystem:</strong> none</li>
+  <li><strong>Network:</strong> none</li>
+</ul>
+<p>The script runs <strong>inside the app container</strong> via <code>docker compose exec</code>, which means it inherits the container's database connection from the existing <code>.env</code> config. No credentials in the script itself.</p>
+<h2 id="example-output">Example output</h2>
+<pre class="code-block lang-"><code>==================================================
+  VibeForge+ Super Admin Password Reset
+==================================================
+
+  User:     Parvez Khan (admin@example.com)
+  Role:     super_admin
+  Password: aB3$dE7fG9hJkL2!
+
+  CHANGE THIS PASSWORD IMMEDIATELY AFTER LOGIN
+  Go to: Admin Panel &gt; View SA account &gt; Change Password
+
+==================================================</code></pre>
+<h2 id="what-to-do-after-running-it">What to do after running it</h2>
+<ol>
+  <li><strong>Log in to the board</strong> at <code>https://vibeforge.hydra.net.au/ui/login</code> with the SA email and the new password</li>
+  <li><strong>Change the password</strong> via Admin Panel → View SA account → Change Password</li>
+  <li><strong>Do NOT leave the auto-generated password in place.</strong> It's strong but it lives in your terminal scrollback now and on whatever screen the operator was using.</li>
+</ol>
+<h2 id="failure-modes">Failure modes</h2>
+<ul>
+  <li><strong>"No super_admin user found in database"</strong> — The auth migration hasn't been run, OR the SA was deleted. Run <code>alembic upgrade head</code> and check the user table. If the SA was deleted, you have a bigger problem — see <code>bootstrap.md</code> for first-boot SA creation.</li>
+  <li><strong><code>ERROR: ...</code></strong> — Database connection failed. Check <code>.env</code> has correct <code>POSTGRES_*</code> variables and the db container is up. <code>docker compose ps</code>.</li>
+</ul>
+<h2 id="source">Source</h2>
+<ul>
+  <li>Script: <code>scripts/reset_sa.sh</code> (1-line wrapper)</li>
+  <li>Worker: <code>scripts/reset_sa_password.py</code></li>
+  <li>Both deployed to <code>/opt/vibeforge/scripts/</code> on the VM</li>
+</ul>
+<h2 id="see-also">See also</h2>
+<ul>
+  <li><code>tools/bootstrap_forgejo.md</code> — companion bootstrap/reset tool for Forgejo</li>
+  <li><code>0-MD/0-Documentation/auth-agent.md</code> — the SA role definition and how it fits the trust axes</li>
+  <li><code>0-MD/0-Documentation/auth-agent-internal.md</code> — recovery procedures (confidential)</li>
+</ul>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,735 @@
+{# ── MC Floating Card Editor — shared partial ── #}
+{# Include in any page that needs the task drawer: {% include "ui/_editor.html" %} #}
+
+{# ── Shared MC dialog overlay (confirm, prompt, alert) ── #}
+<div id="fceConfirmOverlay" class="fce-confirm-overlay" style="display:none;">
+  <div class="fce-confirm-card">
+    <div class="fce-topbar"></div>
+    <div style="padding:1.5rem 2rem;">
+      <h3 style="font-size:1rem;font-weight:700;margin-bottom:0.75rem;" class="fce-title" id="fceConfirmTitle">Confirm</h3>
+      <p class="fce-desc-text" style="margin-bottom:0.75rem;" id="fceConfirmMsg"></p>
+      <div id="fceConfirmSelect" style="display:none;margin-bottom:0.75rem;">
+        <select id="fceConfirmSelectInput" class="fce-select" style="width:100%;"></select>
+      </div>
+      <div id="fceConfirmInput" style="display:none;margin-bottom:0.75rem;">
+        <textarea id="fceConfirmInputField" class="fce-textarea" rows="2" placeholder="Enter reason..." style="width:100%;"></textarea>
+      </div>
+      <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+        <button class="fce-btn fce-btn-cancel" id="fceConfirmDiscard">Cancel</button>
+        <button class="fce-btn fce-btn-save" id="fceConfirmSave">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Status change reason dialog (cancel / reopen) ── #}
+<style>
+#statusReasonDialog { background:transparent;border:none;padding:0;max-width:560px;width:92vw;margin:0;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%); }
+#statusReasonDialog::backdrop { background:rgba(0,0,0,0.4); }
+</style>
+<dialog id="statusReasonDialog" onclick="if(event.target===this)this.close()">
+  <form id="statusReasonForm" class="fce-transmission" style="border-radius:10px;padding:1.25rem 1.5rem;border:1px solid rgba(124,58,237,0.12);background:var(--color-surface, #1e293b);" onsubmit="event.preventDefault();var r=this.elements.reason.value.trim();if(!r)return;this._confirmed=true;this.closest('dialog').close();this._cb&&this._cb(r);">
+    <span class="fce-label" id="statusReasonTitle">// Transition Reason</span>
+    <p id="statusReasonLabel" style="font-size:0.78rem;color:var(--color-text-muted, #94a3b8);margin:0.25rem 0 0.6rem;">Why is this task being cancelled? *</p>
+    <textarea name="reason" class="fce-textarea" rows="5" placeholder="> Enter reason..." autofocus style="width:100%;"></textarea>
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.6rem;margin-top:0.75rem;">
+      <button type="button" class="fce-btn fce-btn-cancel" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="fce-btn-send" id="statusReasonSubmit" title="Confirm" style="position:relative;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+  </form>
+</dialog>
+
+{# ── Floating task card editor — Mission Control layout ── #}
+<div id="taskEditorOverlay" class="fce-overlay" style="display:none;" onclick="if(event.target===this)handleEditorClickAway()">
+  <div id="taskEditorCard" class="fce-card">
+    {# Neon glow top bar #}
+    <div class="fce-topbar"></div>
+    {# Header: radar + title/status + drift flag + close #}
+    <div class="fce-header" id="fceHeader">
+      <div class="fce-radar"><span class="fce-radar-dot"></span></div>
+      <div class="fce-header-text">
+        <input type="text" class="fce-title-input" id="drawerFieldTitle" data-field="title" placeholder="Task title"
+               autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
+        <span class="fce-status-text" id="drawerStatusText"></span>
+      </div>
+      <button id="drawerDriftClearBtn" class="fce-drift-clear-pulse-btn" style="display:none;"
+              onclick="clearDriftFlag()"
+              title="Drift gate triggered — an agent was detected gaming the mechanism (replaying cached responses instead of engaging with current session state). Agent writes are frozen. Click to review the evidence and clear the flag. Detection specifics are deliberately kept opaque from the agent — telling it what we check would let it optimise around the check.">&#9888; Clear Drift Gate</button>
+      <button class="fce-close" onclick="handleEditorClickAway()">×</button>
+    </div>
+
+    <div class="fce-body" id="drawerBody">
+      <div class="fce-columns">
+      {# LEFT: Description + Tabs (Notes / Notes+Log) #}
+      <div class="fce-col-main">
+        {# Short description (card face) #}
+        <div class="fce-desc" style="padding-top:0.4rem;padding-bottom:0.4rem;">
+          <span class="fce-label">// Card Summary <span style="font-size:0.5rem;color:var(--color-text-subtle);font-weight:400;">(max 120 chars)</span></span>
+          <input type="text" id="drawerFieldShortDesc" class="fce-input" maxlength="120" placeholder="Brief summary for card face..." data-field="short_description" style="font-size:0.7rem;">
+        </div>
+        {# Description — collapsible, capped height #}
+        <div class="fce-desc">
+          <div class="fce-desc-header">
+            <span class="fce-label">// Description <button class="fce-edit-btn" id="descEditBtn" onclick="toggleDescEdit()">&#9998;</button></span>
+            <button class="fce-desc-toggle" id="descToggleBtn" onclick="toggleDescCollapse()">&#9660;</button>
+          </div>
+          <div id="descReadOnly" class="fce-desc-text"></div>
+          <textarea id="drawerFieldDesc" class="fce-textarea" rows="3" data-field="description" style="display:none;"></textarea>
+        </div>
+
+        {# Tab bar #}
+        <div class="fce-tab-bar">
+          <div class="fce-tab active" data-tab="notes" onclick="switchEditorTab('notes',this)">Notes</div>
+          <div class="fce-tab" data-tab="full" onclick="switchEditorTab('full',this)">Notes + Log</div>
+          <div class="fce-tab" data-tab="related" onclick="switchEditorTab('related',this)">Related <span id="drawerRelatedCount" style="font-family:var(--font-mono);font-size:0.55rem;opacity:0.6;margin-left:0.25rem"></span></div>
+        </div>
+
+        {# Tab content: inline transmission + scrollable feed #}
+        <div class="fce-tab-content">
+          <div class="fce-transmission" id="drawerTransmission">
+            <span class="fce-label">// New Transmission</span>
+            <div class="fce-transmission-row">
+              <textarea id="drawerCommentInput" class="fce-textarea fce-transmission-input" rows="1" placeholder="> Enter message..."></textarea>
+              <button class="fce-btn-send" onclick="addNote()" title="Transmit">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+            <div class="fce-transmission-options">
+              <label class="fce-completion-check" title="Mark as completion note (required before closing)">
+                <input type="checkbox" id="drawerCompletionNote"> <span>Completion Note</span>
+              </label>
+              <label class="fce-completion-check fce-internal-check" title="Mark as internal — hidden from agents. Use for internal discussion, drift flags, or anything that shouldn't reach the agent context.">
+                <input type="checkbox" id="drawerInternalNote"> <span>Internal</span>
+              </label>
+              <button class="fce-btn-load-last" onclick="loadLastHumanNote()" title="Load last human note for editing">&#8635; Load last</button>
+            </div>
+          </div>
+          <div id="drawerNotesLocked" class="fce-notes-locked" style="display:none;">
+            <span class="fce-label">// Transmission Locked</span>
+            <p>Task is closed. Reopen to add new notes.</p>
+          </div>
+          <div id="drawerActivityFeed" class="fce-feed"></div>
+
+          {# VF-304: Related tab panel — hidden unless Related tab active #}
+          <div id="drawerRelatedPanel" style="display:none">
+            <div class="vf304-section">
+              <div class="vf304-section-head">
+                <span class="vf304-rel-label"><span style="opacity:0.5;margin-right:0.25rem">&gt;</span>Blocked by <span class="vf304-rel-cnt" id="vf304BbCnt">0</span></span>
+                <button type="button" class="vf304-add-btn" onclick="vf304OpenPicker('blocked_by')" title="This task is blocked by the one you'll pick">+ Add</button>
+              </div>
+              <div id="vf304BbBody"></div>
+            </div>
+            <div class="vf304-section">
+              <div class="vf304-section-head">
+                <span class="vf304-rel-label"><span style="opacity:0.5;margin-right:0.25rem">&gt;</span>Blocks &mdash; tasks that depend on this <span class="vf304-rel-cnt" id="vf304BlocksCnt">0</span></span>
+                <button type="button" class="vf304-add-btn" onclick="vf304OpenPicker('blocks')" title="This task blocks the one you'll pick">+ Add</button>
+              </div>
+              <div id="vf304BlocksBody"></div>
+            </div>
+            <div class="vf304-section">
+              <div class="vf304-section-head">
+                <span class="vf304-rel-label"><span style="opacity:0.5;margin-right:0.25rem">&gt;</span>Related <span class="vf304-rel-cnt" id="vf304RelCnt">0</span></span>
+                <button type="button" class="vf304-add-btn" onclick="vf304OpenPicker('related')" title="Loose association — no gating">+ Add</button>
+              </div>
+              <div id="vf304RelBody"></div>
+            </div>
+          </div>
+        </div>
+      </div>{# close fce-col-main #}
+
+      {# RIGHT: Properties sidebar #}
+      <div class="fce-col-props">
+        <div class="fce-prop"><span class="fce-label">Status</span>
+          <div class="fce-select-wrap"><select id="drawerFieldStatus" class="fce-select" data-field="status">
+            <option value="backlog">Backlog</option><option value="ready">Ready</option>
+            <option value="in_progress">In Progress</option><option value="needs_review">Needs Review</option>
+            <option value="blocked">Blocked</option><option value="done">Done</option>
+            <option value="cancelled">Cancelled</option>
+          </select></div></div>
+        <div class="fce-prop"><span class="fce-label">Priority</span>
+          <div class="fce-select-wrap"><select id="drawerFieldPriority" class="fce-select" data-field="priority">
+            <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+          </select></div></div>
+        <div class="fce-prop"><span class="fce-label">Assign To</span>
+          <div class="fce-select-wrap"><select id="drawerFieldOwner" class="fce-select" data-field="owner_label">
+            <option value="agent">Agent</option><option value="human">Human</option>
+          </select></div></div>
+        <div class="fce-prop"><span class="fce-label">Milestone</span>
+          <span id="drawerFieldMilestone" class="fce-prop-readonly">–</span></div>
+        <div class="fce-prop"><span class="fce-label">Phase</span>
+          <div class="fce-select-wrap"><select id="drawerFieldPhase" class="fce-select" data-field="phase_id">
+            <option value="">Loading...</option>
+          </select></div></div>
+        <div class="fce-prop"><span class="fce-label">Type</span>
+          <div class="fce-select-wrap"><select id="drawerFieldTaskType" class="fce-select" data-field="task_type">
+            <option value="">None</option>
+            <option value="feature">Feature</option>
+            <option value="bug">Bug</option>
+            <option value="chore">Chore</option>
+            <option value="spike">Spike</option>
+            <option value="verification">Verification</option>
+          </select></div></div>
+        <div class="fce-prop"><span class="fce-label">Dates</span>
+          {# VF-319: password-manager opt-out signals — date fields were triggering
+             Bitwarden/1Password/LastPass identity-overlay heuristics. #}
+          <div class="fce-date-row">
+            <div><span class="fce-date-label">START</span><input type="date" id="drawerFieldStart" class="fce-input" data-field="start_date"
+                 autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
+            <div><span class="fce-date-label">DUE</span><input type="date" id="drawerFieldDue" class="fce-input" data-field="due_date"
+                 autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></div>
+          </div></div>
+        <div class="fce-prop"><span class="fce-label">Blocked By</span>
+          {# VF-304: hidden input keeps existing save-dirty-detection working; visible chip below #}
+          <input type="hidden" id="drawerFieldBlockedBy" data-field="blocked_by_task_id">
+          <div id="drawerBlockedByChip" class="vf304-bb-empty">
+            <button type="button" class="vf304-bb-pick" onclick="vf304OpenBlockerPicker()">+ Pick a blocker</button>
+          </div>
+        </div>
+        <div class="fce-timestamps">
+          <span id="drawerCreated"></span><br>
+          <span id="drawerUpdated"></span>
+        </div>
+      </div>{# close fce-col-props #}
+      </div>{# close fce-columns #}
+    </div>
+
+    <div class="fce-footer">
+      <button class="fce-btn fce-btn-cancel" onclick="handleEditorClickAway()">Cancel</button>
+      <button class="fce-btn fce-btn-save" id="drawerSaveBtn" onclick="saveDrawer()">Save</button>
+    </div>
+    {# Resize handle #}
+    <div class="fce-resize" id="fceResize"></div>
+  </div>
+</div>
+
+{# VF-304: reason modal for blocked_by set/change/clear #}
+<style>
+  /* Sidebar blocked-by chip */
+  .vf304-bb-pick {
+    width: 100%; font-family: var(--font-mono); font-size: 0.7rem;
+    padding: 0.4rem 0.7rem;
+    background: hsl(var(--hue) 68% 55% / 0.1);
+    border: 1px dashed hsl(var(--hue) 68% 55% / 0.4);
+    border-radius: var(--radius-sm);
+    color: hsl(var(--hue) 68% 65%);
+    cursor: pointer; text-align: center;
+  }
+  .vf304-bb-pick:hover { background: hsl(var(--hue) 68% 55% / 0.2); border-style: solid; }
+  .vf304-bb-chip {
+    display: flex; align-items: center; gap: var(--space-2);
+    padding: 0.4rem 0.5rem;
+    background: hsl(var(--hue) 68% 55% / 0.12);
+    border: 1px solid hsl(var(--hue) 68% 55% / 0.3);
+    border-radius: var(--radius-sm); font-size: 0.72rem;
+  }
+  .vf304-bb-chip .icon { font-size: 0.8rem; }
+  .vf304-bb-chip .id {
+    font-family: var(--font-mono); color: hsl(var(--hue) 68% 65%);
+    font-weight: 600; white-space: nowrap;
+  }
+  .vf304-bb-chip .title {
+    flex: 1; color: var(--color-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    font-size: 0.7rem;
+  }
+  /* Sidebar chip's × uses shared .pcd-member-remove class (tokens.css) */
+  .vf304-bb-chip .pcd-member-remove { margin-left: auto; }
+
+  /* Related tab styles */
+  .vf304-section { margin-bottom: var(--space-5); }
+  .vf304-section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px dashed color-mix(in srgb, hsl(var(--hue) 68% 55%) 18%, transparent);
+  }
+  .vf304-rel-label {
+    font-family: var(--font-mono); font-size: 0.625rem;
+    color: hsl(var(--hue) 68% 55%);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  [data-theme="dark"] .vf304-rel-label { color: hsl(var(--hue) 68% 70%); }
+  .vf304-rel-cnt {
+    font-family: var(--font-mono); font-size: 0.625rem;
+    color: var(--color-text-muted);
+    padding: 1px 6px;
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 10%, transparent);
+    border-radius: var(--radius-sm);
+  }
+  /* Related panel is a tab sibling to the activity feed. Parent .fce-tab-content
+     is overflow:hidden, so without its own scroll the panel overflows off-screen
+     once the three sections exceed drawer height. Mirror .fce-feed sizing. */
+  #drawerRelatedPanel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.6rem 1.25rem;
+    scrollbar-width: thin;
+  }
+  #drawerRelatedPanel::-webkit-scrollbar { width: 3px; }
+  #drawerRelatedPanel::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+  [data-theme="dark"] #drawerRelatedPanel::-webkit-scrollbar-thumb { background: hsl(var(--hue) 68% 55% / 0.3); }
+
+  .vf304-add-btn {
+    font-family: var(--font-mono); font-size: 0.65rem; font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    background: hsl(var(--hue) 68% 55%);
+    border: 1px solid hsl(var(--hue) 68% 55%);
+    border-radius: var(--radius-sm);
+    color: #fff;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 2px hsl(var(--hue) 68% 20% / 0.2);
+    transition: all var(--transition-fast, 150ms ease);
+  }
+  .vf304-add-btn:hover {
+    background: hsl(var(--hue) 68% 48%);
+    border-color: hsl(var(--hue) 68% 48%);
+    box-shadow: 0 2px 6px hsl(var(--hue) 68% 30% / 0.35);
+    transform: translateY(-1px);
+  }
+  [data-theme="dark"] .vf304-add-btn {
+    background: hsl(var(--hue) 68% 60%);
+    border-color: hsl(var(--hue) 68% 60%);
+  }
+  [data-theme="dark"] .vf304-add-btn:hover {
+    background: hsl(var(--hue) 68% 68%);
+    border-color: hsl(var(--hue) 68% 68%);
+  }
+  .vf304-empty {
+    padding: var(--space-3) var(--space-4);
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-md);
+    text-align: center;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    font-style: italic;
+  }
+  [data-theme="dark"] .vf304-empty { background: rgba(255, 255, 255, 0.02); }
+
+  /* Mini-card (MC-vibe) */
+  .vf304-mc-card {
+    background: hsl(var(--hue) 68% 55% / 0.05);
+    border: 1px solid hsl(var(--hue) 68% 55% / 0.22);
+    border-radius: var(--radius-md);
+    padding: var(--space-4); margin-bottom: var(--space-3);
+  }
+  .vf304-mc-card .full-title {
+    font-size: var(--text-sm); color: var(--color-text);
+    font-weight: 600; line-height: 1.4;
+    padding-bottom: var(--space-3); margin-bottom: var(--space-3);
+    border-bottom: 1px dashed color-mix(in srgb, hsl(var(--hue) 68% 55%) 20%, transparent);
+  }
+  .vf304-meta-grid {
+    display: grid; grid-template-columns: 88px 1fr;
+    column-gap: var(--space-3); row-gap: var(--space-2);
+    align-items: center;
+    margin-bottom: var(--space-4);
+  }
+  .vf304-meta-label {
+    font-family: var(--font-mono); font-size: 0.55rem; font-weight: 600;
+    color: var(--color-text-subtle); text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .vf304-meta-value {
+    display: flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-xs); color: var(--color-text); font-family: var(--font-mono);
+  }
+  .vf304-meta-value.reason {
+    font-family: var(--font-sans); color: var(--color-text-muted); font-style: italic;
+  }
+  .vf304-desc-block { margin-bottom: var(--space-4); }
+  .vf304-desc-block .vf304-meta-label { display: block; margin-bottom: var(--space-2); }
+  .vf304-desc-text {
+    font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.65;
+    padding-left: var(--space-3);
+    border-left: 2px solid color-mix(in srgb, hsl(var(--hue) 68% 55%) 18%, transparent);
+  }
+  .vf304-card-actions {
+    display: flex; justify-content: flex-end;
+    padding-top: var(--space-2);
+    border-top: 1px dashed color-mix(in srgb, hsl(var(--hue) 68% 55%) 15%, transparent);
+  }
+  .vf304-btn-open {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-xs); color: #fff;
+    background: hsl(var(--hue) 68% 55%);
+    border: 1px solid hsl(var(--hue) 68% 50%);
+    border-radius: var(--radius-md); cursor: pointer;
+    text-decoration: none; font-family: var(--font-sans); font-weight: 500;
+  }
+  .vf304-btn-open:hover {
+    background: hsl(var(--hue) 68% 48%);
+    box-shadow: 0 4px 12px hsl(var(--hue) 68% 55% / 0.35);
+  }
+
+  /* Compact line-item row — used by all three Related sections */
+  .vf304-rel-row {
+    display: grid;
+    grid-template-columns: 14px 82px auto minmax(0, 1fr) auto auto;
+    gap: var(--space-2); align-items: center;
+    padding: var(--space-2) var(--space-3);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-1);
+    font-size: var(--text-xs);
+    cursor: pointer;
+    transition: background var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+    min-width: 0;  /* VF-304 v3: allow grid cells to shrink + ellipsis */
+    overflow: hidden;
+  }
+  [data-theme="dark"] .vf304-rel-row { background: rgba(255, 255, 255, 0.025); }
+  .vf304-rel-row:hover {
+    border-color: hsl(var(--hue) 68% 55% / 0.35);
+    background: hsl(var(--hue) 68% 55% / 0.06);
+  }
+  .vf304-rel-row.expanded {
+    border-color: hsl(var(--hue) 68% 55% / 0.4);
+    background: hsl(var(--hue) 68% 55% / 0.08);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+  }
+
+  /* Between-row separator so a stack reads as a list, not a blob */
+  .vf304-rel-row + .vf304-rel-row { margin-top: var(--space-1); }
+  .vf304-rel-row + .vf304-rel-expand + .vf304-rel-row { margin-top: var(--space-2); }
+  .vf304-rel-row .caret {
+    color: var(--color-text-subtle);
+    font-size: 0.65rem; text-align: center; line-height: 1;
+    transition: transform var(--transition-fast, 150ms ease);
+  }
+  .vf304-rel-row.expanded .caret { color: hsl(var(--hue) 68% 55%); }
+  .vf304-rel-row .rid {
+    font-family: var(--font-mono); font-weight: 600;
+    color: hsl(var(--hue) 68% 55%);
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 14%, transparent);
+    padding: 2px 8px; border-radius: var(--radius-sm); text-align: center;
+    white-space: nowrap;
+  }
+  [data-theme="dark"] .vf304-rel-row .rid { color: hsl(var(--hue) 68% 70%); }
+  .vf304-rel-row .rtitle {
+    color: var(--color-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .vf304-rel-row .rchips { display: flex; gap: 0.25rem; }
+  .vf304-rel-row .rowner {
+    font-family: var(--font-mono); font-size: 0.625rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  /* VF-304 v3: soften the shared pcd-member-remove button when used inside the
+     Related tab's line-item rows. Rest state is a ghost × in muted text; red tint
+     only appears on hover. Matches the admin user/agent row hover-highlight rhythm
+     (subtle default, decisive on intent). The global .pcd-member-remove style
+     stays red-by-default for the VF-286 Members panel where it belongs. */
+  .vf304-rel-row .pcd-member-remove,
+  .vf304-bb-chip .pcd-member-remove {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--color-text-subtle);
+    font-size: 0.8rem;
+    padding: 0.15rem 0.4rem;
+    margin-left: 0;
+    opacity: 0.7;
+    transition: background var(--transition-fast, 150ms ease),
+                border-color var(--transition-fast, 150ms ease),
+                color var(--transition-fast, 150ms ease),
+                opacity var(--transition-fast, 150ms ease);
+  }
+  .vf304-rel-row:hover .pcd-member-remove,
+  .vf304-bb-chip:hover .pcd-member-remove {
+    opacity: 1;
+  }
+  .vf304-rel-row .pcd-member-remove:hover,
+  .vf304-bb-chip .pcd-member-remove:hover {
+    background: color-mix(in srgb, var(--color-blocked) 14%, transparent);
+    border-color: color-mix(in srgb, var(--color-blocked) 45%, transparent);
+    color: var(--color-blocked);
+    opacity: 1;
+  }
+
+  /* Inline expanded peek (below the row) — visually joined to the row above
+     so a stack of rows + their peeks reads as a single list, not a blob. */
+  .vf304-rel-expand {
+    display: none;
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-2) 0;
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 4%, transparent);
+    border: 1px solid hsl(var(--hue) 68% 55% / 0.28);
+    border-top: none;  /* seamless join with the expanded row's bottom */
+    border-bottom-left-radius: var(--radius-md);
+    border-bottom-right-radius: var(--radius-md);
+    overflow: hidden;
+    min-width: 0;
+  }
+  .vf304-rel-row.expanded + .vf304-rel-expand { display: block; }
+  .vf304-rel-expand .vf304-mini-meta {
+    display: grid; grid-template-columns: 88px minmax(0, 1fr);
+    column-gap: var(--space-3); row-gap: var(--space-1);
+    margin-bottom: var(--space-2); align-items: baseline;
+    font-size: var(--text-xs);
+  }
+  .vf304-rel-expand .vf304-mini-meta .lbl {
+    font-family: var(--font-mono); font-size: 0.55rem;
+    color: var(--color-text-subtle);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .vf304-rel-expand .vf304-mini-meta .val {
+    color: var(--color-text); font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+  .vf304-rel-expand .vf304-mini-meta .val.reason {
+    font-family: var(--font-sans); color: var(--color-text-muted); font-style: italic;
+  }
+  .vf304-rel-expand .vf304-mini-desc {
+    font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.6;
+    padding-left: var(--space-3);
+    border-left: 2px solid color-mix(in srgb, hsl(var(--hue) 68% 55%) 30%, transparent);
+    margin-top: var(--space-2);
+    overflow-wrap: anywhere;   /* VF-304 v3: prevent long tokens from overflowing */
+    white-space: normal;
+  }
+  .vf304-rel-expand .vf304-mini-open {
+    display: inline-flex; align-items: center; gap: var(--space-1);
+    margin-top: var(--space-3);
+    padding: var(--space-1) var(--space-3);
+    font-family: var(--font-mono); font-size: 0.7rem;
+    color: hsl(var(--hue) 68% 55%);
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 12%, transparent);
+    border: 1px solid color-mix(in srgb, hsl(var(--hue) 68% 55%) 30%, transparent);
+    border-radius: var(--radius-sm);
+    cursor: pointer; text-decoration: none;
+  }
+  [data-theme="dark"] .vf304-rel-expand .vf304-mini-open { color: hsl(var(--hue) 68% 70%); }
+  .vf304-rel-expand .vf304-mini-open:hover {
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 20%, transparent);
+  }
+
+  /* Chip palette (reuse tokens) */
+  .vf304-chip {
+    font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
+  }
+  .vf304-c-backlog     { background: color-mix(in srgb, var(--color-backlog) 18%, transparent); color: var(--color-backlog); }
+  .vf304-c-ready       { background: color-mix(in srgb, var(--color-ready) 18%, transparent); color: var(--color-ready); }
+  .vf304-c-in_progress { background: color-mix(in srgb, var(--color-in-progress) 18%, transparent); color: var(--color-in-progress); }
+  .vf304-c-needs_review{ background: color-mix(in srgb, var(--color-needs-review) 18%, transparent); color: var(--color-needs-review); }
+  .vf304-c-blocked     { background: color-mix(in srgb, var(--color-blocked) 18%, transparent); color: var(--color-blocked); }
+  .vf304-c-done        { background: color-mix(in srgb, var(--color-done) 16%, transparent); color: var(--color-done); }
+  .vf304-c-cancelled   { background: color-mix(in srgb, var(--color-cancelled) 20%, transparent); color: var(--color-text-subtle); text-decoration: line-through; }
+  .vf304-p-critical    { background: color-mix(in srgb, var(--color-priority-critical) 18%, transparent); color: var(--color-priority-critical); }
+  .vf304-p-high        { background: color-mix(in srgb, var(--color-priority-high) 16%, transparent); color: var(--color-priority-high); }
+  .vf304-p-medium      { background: color-mix(in srgb, var(--color-priority-medium) 16%, transparent); color: var(--color-priority-medium); }
+  .vf304-p-low         { background: color-mix(in srgb, var(--color-priority-low) 22%, transparent); color: var(--color-text-muted); }
+
+  /* Reason modal — default violet (set/change), .vf304-danger for destructive (clear).
+     VF-304 v2: palette follows user's --hue preference from Appearance tab. Red is
+     reserved for destructive semantic ONLY (matches the admin tier's destructive colour). */
+  #vf304-reason-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 20000;
+    opacity: 0; visibility: hidden;
+    transition: opacity 140ms ease, visibility 140ms ease;
+    pointer-events: none;
+  }
+  #vf304-reason-overlay.open {
+    opacity: 1; visibility: visible; pointer-events: auto;
+  }
+  .vf304-reason-modal {
+    width: 100%; max-width: 520px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-xl);
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.35),
+      0 0 80px hsl(var(--hue) 68% 55% / 0.15);
+    overflow: hidden; position: relative;
+  }
+  [data-theme="dark"] .vf304-reason-modal {
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(20, 30, 50, 0.92));
+    border-color: rgba(148, 163, 184, 0.2);
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.7),
+      0 0 80px hsl(var(--hue) 68% 55% / 0.2);
+  }
+  /* Accent topbar — follows --hue by default (set/change) */
+  .vf304-reason-modal::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg,
+      transparent,
+      hsl(var(--hue) 68% 55%) 30%,
+      hsl(var(--hue) 90% 70%) 50%,
+      hsl(var(--hue) 68% 55%) 70%,
+      transparent);
+    opacity: 0.9;
+  }
+  /* Danger variant (for clear) — red topbar overrides */
+  .vf304-reason-modal.vf304-danger::before {
+    background: linear-gradient(90deg, transparent, #ef4444 30%, #f59e0b 50%, #ef4444 70%, transparent);
+  }
+
+  .vf304-reason-modal .head {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 5%, transparent);
+  }
+  .vf304-reason-modal.vf304-danger .head {
+    background: color-mix(in srgb, #ef4444 5%, transparent);
+  }
+  .vf304-reason-modal .kicker {
+    font-family: var(--font-mono); font-size: 0.55rem; font-weight: 600;
+    color: hsl(var(--hue) 68% 55%);
+    text-transform: uppercase; letter-spacing: 0.12em;
+    margin-bottom: var(--space-1);
+  }
+  [data-theme="dark"] .vf304-reason-modal .kicker { color: hsl(var(--hue) 68% 70%); }
+  .vf304-reason-modal.vf304-danger .kicker { color: #ef4444; }
+  [data-theme="dark"] .vf304-reason-modal.vf304-danger .kicker { color: #fca5a5; }
+
+  .vf304-reason-modal .title {
+    font-size: var(--text-sm); font-weight: 600; color: var(--color-text);
+  }
+  .vf304-reason-modal .sub {
+    font-size: 0.78rem;
+    color: var(--color-text);  /* bumped from muted for readability */
+    margin-top: var(--space-1); opacity: 0.85;
+  }
+  .vf304-reason-modal .sub strong { color: hsl(var(--hue) 68% 55%); }
+  [data-theme="dark"] .vf304-reason-modal .sub strong { color: hsl(var(--hue) 68% 72%); }
+
+  .vf304-reason-modal .body { padding: var(--space-4); color: var(--color-text); }
+  .vf304-reason-modal .field-label {
+    font-family: var(--font-mono); font-size: 0.55rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: var(--space-2);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .vf304-reason-modal .req {
+    color: hsl(var(--hue) 68% 55%);
+    font-size: 0.75rem; font-weight: 700;
+  }
+  .vf304-reason-modal.vf304-danger .req { color: #ef4444; }
+  .vf304-reason-modal textarea {
+    width: 100%; min-height: 90px;
+    padding: var(--space-3);
+    background: var(--color-surface-sub);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-family: var(--font-sans); font-size: var(--text-xs);
+    outline: none; resize: vertical;
+  }
+  [data-theme="dark"] .vf304-reason-modal textarea { background: rgba(0, 0, 0, 0.3); }
+  .vf304-reason-modal textarea:focus { border-color: hsl(var(--hue) 68% 55%); }
+  .vf304-reason-modal.vf304-danger textarea:focus { border-color: #ef4444; }
+  .vf304-reason-modal .hint {
+    font-family: var(--font-mono); font-size: 0.65rem;
+    color: var(--color-text-muted);
+    margin-top: var(--space-2); line-height: 1.5;
+  }
+  .vf304-reason-modal .err {
+    font-size: 0.72rem; color: #ef4444; margin-top: var(--space-2);
+    padding: var(--space-2);
+    background: color-mix(in srgb, #ef4444 10%, transparent);
+    border: 1px solid color-mix(in srgb, #ef4444 25%, transparent);
+    border-radius: var(--radius-sm);
+    display: none;
+  }
+  [data-theme="dark"] .vf304-reason-modal .err { color: #fca5a5; }
+  .vf304-reason-modal .err.show { display: block; }
+  .vf304-reason-modal .err .pivot-btn {
+    display: inline-block; margin-left: var(--space-2);
+    padding: 1px 8px; border-radius: var(--radius-sm);
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 18%, transparent);
+    border: 1px solid color-mix(in srgb, hsl(var(--hue) 68% 55%) 40%, transparent);
+    color: hsl(var(--hue) 68% 55%);
+    font-family: var(--font-mono); font-size: 0.65rem;
+    cursor: pointer; text-decoration: none;
+  }
+  [data-theme="dark"] .vf304-reason-modal .err .pivot-btn { color: hsl(var(--hue) 68% 75%); }
+  .vf304-reason-modal .foot {
+    display: flex; gap: var(--space-2); justify-content: flex-end;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--color-border);
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 3%, transparent);
+  }
+  [data-theme="dark"] .vf304-reason-modal .foot { background: rgba(0, 0, 0, 0.2); }
+  .vf304-btn-cancel {
+    padding: var(--space-2) var(--space-4);
+    font-family: var(--font-mono); font-size: 0.72rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted); cursor: pointer;
+  }
+  .vf304-btn-cancel:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+  .vf304-btn-submit {
+    padding: var(--space-2) var(--space-4);
+    font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 500;
+    background: hsl(var(--hue) 68% 55%);
+    border: 1px solid hsl(var(--hue) 68% 48%);
+    border-radius: var(--radius-md);
+    color: #fff; cursor: pointer;
+  }
+  .vf304-reason-modal.vf304-danger .vf304-btn-submit {
+    background: #ef4444; border-color: #dc2626;
+  }
+  .vf304-btn-submit:disabled {
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 35%, transparent);
+    border-color: color-mix(in srgb, hsl(var(--hue) 68% 55%) 35%, transparent);
+    cursor: not-allowed; opacity: 0.6;
+  }
+  .vf304-reason-modal.vf304-danger .vf304-btn-submit:disabled {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  .vf304-btn-submit:not(:disabled):hover {
+    background: hsl(var(--hue) 68% 48%);
+    box-shadow: 0 4px 12px hsl(var(--hue) 68% 55% / 0.35);
+  }
+  .vf304-reason-modal.vf304-danger .vf304-btn-submit:not(:disabled):hover {
+    background: #dc2626;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+  }
+</style>
+
+<div id="vf304-reason-overlay" onclick="if(event.target===this)vf304CloseReason()">
+  <div class="vf304-reason-modal">
+    <div class="head">
+      <div class="kicker" id="vf304ReasonKicker">// Clear Relationship</div>
+      <div class="title" id="vf304ReasonTitle">Clear blocked-by link?</div>
+      <div class="sub" id="vf304ReasonSub"></div>
+    </div>
+    <div class="body">
+      <div class="field-label">Reason <span class="req">*</span> required</div>
+      <textarea id="vf304ReasonInput" placeholder="Why is this dependency being set / changed / cleared?"
+                oninput="vf304ReasonOnInput()"></textarea>
+      <div class="hint">
+        Captured on the activity log so future agents know why this dependency changed.<br>
+        Minimum 10 characters. Agent cross-session memory is poor or unreliable &mdash; this is the audit trail.
+      </div>
+      <div class="err" id="vf304ReasonErr"></div>
+    </div>
+    <div class="foot">
+      <button type="button" class="vf304-btn-cancel" onclick="vf304CloseReason()">Cancel</button>
+      <button type="button" class="vf304-btn-submit" id="vf304ReasonSubmit" disabled onclick="vf304SubmitReason()">Submit</button>
+    </div>
+  </div>
+</div>
+

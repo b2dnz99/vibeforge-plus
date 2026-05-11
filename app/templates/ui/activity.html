@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Activity — VibeForge+{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title" style="display:flex;align-items:center;gap:var(--space-2);">
+    <div class="mc-radar"></div>
+    <span style="color:hsl(var(--hue) 68% 55%);font-weight:700;">Activity</span> Timeline
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{# ── Agent Status ── #}
+<div class="mc-stats-bar">
+  {% for agent in agents %}
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono" style="display:flex;align-items:center;gap:var(--space-1);">
+      <span style="font-size:0.875rem;">&#129302;</span> {{ agent.name }}
+    </div>
+    <div class="mc-stat-value mc-stat-green" style="font-size:var(--text-sm);">Active</div>
+  </div>
+  {% endfor %}
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Events (shown)</div>
+    <div class="mc-stat-value">{{ events | length }}</div>
+  </div>
+</div>
+
+{# ── Timeline ── #}
+<div style="max-width:900px;">
+  <div class="mc-section-label mono"><span class="mc-dot-accent" style="background:var(--color-done);"></span>All Activity</div>
+
+  <div class="act-timeline">
+    {% set ns = namespace(last_date='') %}
+    {% for item in events %}
+    {% set evt = item.event %}
+    {% set project = item.project %}
+    {% set task = item.task %}
+    {% set actor_name = item.actor_name %}
+    {% set evt_date = evt.created_at.strftime('%d %b %Y') if evt.created_at else '' %}
+    {% if evt_date != ns.last_date %}
+    {% set ns.last_date = evt_date %}
+    <div class="act-date-divider">
+      <span class="act-date-label mono">{{ evt_date }}</span>
+    </div>
+    {% endif %}
+
+    <div class="act-event {% if evt.actor_type == 'agent' %}act-event-agent{% elif evt.actor_type == 'system' %}act-event-system{% endif %}">
+      <div class="act-event-dot"></div>
+      <div class="act-event-body">
+        <div class="act-event-header">
+          <span class="act-event-actor">
+            {% if evt.actor_type == 'agent' %}&#129302;{% elif evt.actor_type == 'system' %}&#9881;{% else %}&#128100;{% endif %}
+            <strong>{{ actor_name }}</strong>
+          </span>
+          <span class="act-event-project mono">{{ project.prefix or project.slug[:3] | upper }}</span>
+          {% if task.short_id %}
+          <span class="act-event-ticket mono">{{ task.short_id }}</span>
+          {% endif %}
+          {% if task.phase %}
+          <span class="act-event-phase">{{ task.phase }}</span>
+          {% endif %}
+          <span class="act-event-time mono" data-iso="{{ evt.created_at.isoformat() if evt.created_at else '' }}">
+            {{ evt.created_at.strftime('%H:%M') if evt.created_at else '' }}
+          </span>
+        </div>
+        <div class="act-event-summary" style="font-size:0.78rem;color:var(--color-text);margin-top:0.15rem;line-height:1.45;">{{ item.summary }}</div>
+        {% if task.title %}
+        <div class="act-event-task-title" style="font-size:0.65rem;color:var(--color-text-muted);margin-top:0.1rem;">on <strong>{{ task.title }}</strong></div>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div style="color:var(--color-text-muted);font-size:var(--text-xs);padding:var(--space-4) 0;">No activity recorded yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.act-event-time[data-iso]').forEach(function(el) {
+  var iso = el.dataset.iso;
+  if (iso) {
+    var d = new Date(iso);
+    el.textContent = new Intl.DateTimeFormat(window.VF_LOCALE, { hour: '2-digit', minute: '2-digit', timeZone: window.VF_TZ }).format(d);
+  }
+});
+</script>
+
+{% endblock %}

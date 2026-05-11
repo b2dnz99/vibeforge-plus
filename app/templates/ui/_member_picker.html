@@ -1,0 +1,358 @@
+{# VF-286 · Reusable member-picker partial.
+   Include this once per page that needs it (home.html, and later admin_user.html).
+   Exposes window.openMemberPicker(mode, context, onSuccess) where:
+     mode    = 'add-user-to-project'  | 'add-project-to-user' (future)
+     context = { project_slug: '...' } for add-user-to-project mode
+     onSuccess = function(result) — called after successful POST /members
+#}
+<style>
+  #mpo-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px); display: none;
+    align-items: center; justify-content: center; z-index: 10000; padding: 1rem;
+  }
+  #mpo-overlay.open { display: flex; }
+  .mpo-card {
+    background: var(--color-surface); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 14px; width: 100%; max-width: 540px;
+    max-height: min(90vh, 680px); display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6); overflow: hidden;
+  }
+  .mpo-header { padding: 1.1rem 1.25rem 0.9rem; border-bottom: 1px solid var(--color-border); }
+  .mpo-kicker { font-family: var(--font-mono); font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.08em; color: hsl(var(--hue) 68% 60%); margin-bottom: 0.25rem; }
+  .mpo-title { font-size: 1.05rem; font-weight: 600; color: var(--color-text); }
+  .mpo-context { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem; }
+  .mpo-context .tag { display: inline-flex; align-items: center; padding: 0.1rem 0.5rem; border: 1px solid var(--color-border); border-radius: 4px; background: rgba(255,255,255,0.04); color: var(--color-text); font-size: 0.65rem; }
+
+  .mpo-body { padding: 1rem 1.25rem; flex: 1; overflow-y: auto; }
+
+  .mpo-search { position: relative; margin-bottom: 0.75rem; }
+  .mpo-search input {
+    width: 100%; padding: 0.65rem 0.9rem 0.65rem 2rem;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--color-border);
+    border-radius: 10px; color: var(--color-text);
+    font-family: inherit; font-size: 0.85rem; outline: none;
+  }
+  .mpo-search input:focus { border-color: hsl(var(--hue) 68% 60%); }
+  .mpo-search::before { content: '\2315'; position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1rem; pointer-events: none; }
+
+  .mpo-list { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 1rem; max-height: 280px; overflow-y: auto; }
+  .mpo-empty { font-size: 0.75rem; color: var(--color-text-muted); padding: 1rem; text-align: center; font-style: italic; }
+
+  .mpo-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.55rem 0.75rem; background: rgba(255,255,255,0.03);
+    border: 1px solid transparent; border-radius: 6px;
+    cursor: pointer; transition: background 0.1s, border-color 0.1s;
+  }
+  .mpo-row:hover { background: hsl(var(--hue) 68% 60% / 0.08); }
+  .mpo-row.selected { background: hsl(var(--hue) 68% 60% / 0.12); border-color: hsl(var(--hue) 68% 60%); }
+  .mpo-radio { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.2); flex-shrink: 0; position: relative; }
+  .mpo-row.selected .mpo-radio { border-color: hsl(var(--hue) 68% 60%); background: hsl(var(--hue) 68% 60%); }
+  .mpo-row.selected .mpo-radio::after { content: ''; position: absolute; inset: 3px; background: var(--color-surface); border-radius: 50%; }
+  .mpo-icon { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; background: hsl(var(--hue) 50% 40%); color: #fff; flex-shrink: 0; }
+  .mpo-row-main { flex: 1; min-width: 0; }
+  .mpo-row-name { font-size: 0.85rem; font-weight: 500; color: var(--color-text); }
+  .mpo-row-sub { font-family: var(--font-mono); font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.1rem; }
+
+  .mpo-role-section { border-top: 1px solid var(--color-border); padding-top: 0.85rem; }
+  .mpo-role-label { font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); margin-bottom: 0.45rem; }
+  .mpo-role-options { display: flex; gap: 0.4rem; }
+  .mpo-role-btn { flex: 1; padding: 0.55rem 0.8rem; background: rgba(255,255,255,0.04); border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text-muted); font-family: inherit; font-size: 0.8rem; font-weight: 500; cursor: pointer; text-align: center; }
+  .mpo-role-btn.active { background: hsl(var(--hue) 68% 60% / 0.12); color: hsl(var(--hue) 68% 60%); border-color: hsl(var(--hue) 68% 60%); }
+  /* VF-328: locked role buttons when target user is a Viewer */
+  .mpo-role-btn.locked, .mpo-role-btn:disabled {
+    opacity: 0.35; cursor: not-allowed; background: rgba(255,255,255,0.02);
+  }
+  .mpo-role-desc { margin-top: 0.4rem; font-size: 0.7rem; color: var(--color-text-muted); font-style: italic; min-height: 1.1em; }
+  .mpo-role-desc.viewer { color: hsl(38, 80%, 60%); font-style: normal; }
+  /* VF-328: per-row role tag so admins can see Viewer status before selecting */
+  .mpo-role-tag {
+    display: inline-block; padding: 0.05rem 0.4rem; border-radius: 3px;
+    margin-left: 0.4rem; vertical-align: middle;
+    font-family: var(--font-mono); font-size: 0.55rem; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .mpo-role-tag-viewer {
+    background: rgba(148,163,184,0.15); color: #94a3b8;
+    border: 1px solid rgba(148,163,184,0.3);
+  }
+
+  .mpo-footer { padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; gap: 0.5rem; justify-content: flex-end; }
+  .mpo-btn { padding: 0.55rem 1.1rem; border-radius: 10px; font-family: inherit; font-size: 0.82rem; font-weight: 500; cursor: pointer; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); }
+  .mpo-btn:hover { color: var(--color-text); }
+  .mpo-btn.primary { background: hsl(var(--hue) 68% 60%); color: #fff; border-color: hsl(var(--hue) 68% 60%); }
+  .mpo-btn.primary:disabled { background: rgba(255,255,255,0.06); color: var(--color-text-muted); border-color: var(--color-border); cursor: not-allowed; }
+
+  .mpo-err { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.35); color: #ef4444; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.75rem; margin-bottom: 0.75rem; display: none; }
+  .mpo-err.show { display: block; }
+</style>
+
+<div id="mpo-overlay" role="dialog" aria-labelledby="mpo-title">
+  <div class="mpo-card">
+    <div class="mpo-header">
+      <div class="mpo-kicker" id="mpo-kicker">ADD MEMBER</div>
+      <div class="mpo-title" id="mpo-title">Choose a user to add</div>
+      <div class="mpo-context" id="mpo-context"></div>
+    </div>
+    <div class="mpo-body">
+      <div class="mpo-err" id="mpo-err"></div>
+      <div class="mpo-search"><input type="text" id="mpo-search" placeholder="Search..." autocomplete="off"></div>
+      <div class="mpo-list" id="mpo-list"></div>
+      <div class="mpo-role-section">
+        <div class="mpo-role-label">Role</div>
+        <div class="mpo-role-options" id="mpo-role-options">
+          <button class="mpo-role-btn" data-role="read">read</button>
+          <button class="mpo-role-btn active" data-role="write">write</button>
+          <button class="mpo-role-btn" data-role="admin">admin</button>
+        </div>
+        <div class="mpo-role-desc" id="mpo-role-desc">Can read + write tasks, notes, lifecycle. Cannot manage members.</div>
+      </div>
+    </div>
+    <div class="mpo-footer">
+      <button class="mpo-btn" id="mpo-cancel">Cancel</button>
+      <button class="mpo-btn primary" id="mpo-submit" disabled>Add to project</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var MPO = {
+    mode: null, ctx: null, onSuccess: null,
+    items: [], selectionId: null, selectionItem: null, role: 'write',
+    submitLabel: 'Add to project',
+  };
+  var ROLE_DESCS = {
+    read:  'Can read tasks, notes, activity. Cannot edit.',
+    write: 'Can read + write tasks, notes, lifecycle. Cannot manage members.',
+    admin: 'Full project control. Can add/remove members and change roles.',
+  };
+  function el(id) { return document.getElementById(id); }
+  function _esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function showErr(msg) { var e = el('mpo-err'); e.textContent = msg; e.classList.add('show'); }
+  function clearErr() { el('mpo-err').classList.remove('show'); }
+
+  function updateSubmit() {
+    el('mpo-submit').disabled = !MPO.selectionId;
+  }
+
+  function _matchesQuery(item, q) {
+    if (!q) return true;
+    if (MPO.mode === 'add-user-to-project') {
+      return (item.username || '').toLowerCase().indexOf(q) >= 0
+          || (item.display_name || '').toLowerCase().indexOf(q) >= 0
+          || (item.email || '').toLowerCase().indexOf(q) >= 0;
+    }
+    // add-project-to-user
+    return (item.slug || '').toLowerCase().indexOf(q) >= 0
+        || (item.name || '').toLowerCase().indexOf(q) >= 0;
+  }
+
+  function _renderRow(item) {
+    var isSel = MPO.selectionId === item.id;
+    if (MPO.mode === 'add-user-to-project') {
+      var initials = (item.display_name || item.username || '?')
+        .split(/\s+/).map(function(p) { return p[0] || ''; }).slice(0,2).join('').toUpperCase();
+      // VF-328: surface Viewer role with a small tag so admins know upfront.
+      var viewerTag = item.role === 'viewer'
+        ? '<span class="mpo-role-tag mpo-role-tag-viewer" title="Viewer is a global read-only role">Viewer</span>'
+        : '';
+      return '<div class="mpo-row ' + (isSel ? 'selected' : '') + '" data-id="' + _esc(item.id) + '">' +
+        '<span class="mpo-radio"></span>' +
+        '<span class="mpo-icon">' + (initials || '?') + '</span>' +
+        '<span class="mpo-row-main">' +
+          '<div class="mpo-row-name">' + _esc(item.display_name || item.username) + viewerTag + '</div>' +
+          '<div class="mpo-row-sub">' + _esc(item.username) + (item.email ? ' \u00b7 ' + _esc(item.email) : '') + '</div>' +
+        '</span>' +
+      '</div>';
+    }
+    // add-project-to-user: render project
+    var prefix = (item.slug || '??').split('-').map(function(s) { return s[0] || ''; }).slice(0,2).join('').toUpperCase();
+    return '<div class="mpo-row ' + (isSel ? 'selected' : '') + '" data-id="' + _esc(item.id) + '" data-slug="' + _esc(item.slug) + '">' +
+      '<span class="mpo-radio"></span>' +
+      '<span class="mpo-icon" style="background:#0f172a;color:hsl(var(--hue) 68% 60%);border:1px solid hsl(var(--hue) 68% 60%)">' + prefix + '</span>' +
+      '<span class="mpo-row-main">' +
+        '<div class="mpo-row-name">' + _esc(item.name) + '</div>' +
+        '<div class="mpo-row-sub">' + _esc(item.slug) + '</div>' +
+      '</span>' +
+    '</div>';
+  }
+
+  function renderList(query) {
+    var list = el('mpo-list');
+    var q = (query || '').trim().toLowerCase();
+    var filtered = MPO.items.filter(function(it) { return _matchesQuery(it, q); });
+    if (!filtered.length) {
+      var empty = MPO.items.length === 0
+        ? (MPO.mode === 'add-user-to-project'
+            ? 'No users available to add — everyone is already a member.'
+            : 'No projects available — user is already on all active projects.')
+        : 'No matches.';
+      list.innerHTML = '<div class="mpo-empty">' + empty + '</div>';
+      return;
+    }
+    list.innerHTML = filtered.map(_renderRow).join('');
+    list.querySelectorAll('.mpo-row').forEach(function(row) {
+      row.addEventListener('click', function() {
+        list.querySelectorAll('.mpo-row.selected').forEach(function(r) { r.classList.remove('selected'); });
+        row.classList.add('selected');
+        MPO.selectionId = row.dataset.id;
+        MPO.selectionSlug = row.dataset.slug || null;
+        // VF-328: track full item so we know if target is a Viewer
+        MPO.selectionItem = MPO.items.find(function(i) { return i.id === MPO.selectionId; }) || null;
+        applyRoleLock();
+        updateSubmit();
+      });
+    });
+  }
+
+  // VF-328: when selected target is a Viewer, force role=read and lock write/admin.
+  // Only applies in add-user-to-project mode (the selected ITEM is a user with a role).
+  function applyRoleLock() {
+    var isViewer = MPO.mode === 'add-user-to-project'
+      && MPO.selectionItem && MPO.selectionItem.role === 'viewer';
+    var btns = document.querySelectorAll('.mpo-role-btn');
+    btns.forEach(function(b) {
+      var locked = isViewer && b.dataset.role !== 'read';
+      b.disabled = locked;
+      b.classList.toggle('locked', locked);
+    });
+    if (isViewer && MPO.role !== 'read') {
+      MPO.role = 'read';
+      btns.forEach(function(b) { b.classList.toggle('active', b.dataset.role === 'read'); });
+    }
+    var desc = el('mpo-role-desc');
+    if (isViewer) {
+      desc.textContent = 'Viewer (global read-only role) — only "read" membership allowed.';
+      desc.classList.add('viewer');
+    } else {
+      desc.textContent = ROLE_DESCS[MPO.role] || '';
+      desc.classList.remove('viewer');
+    }
+  }
+
+  function close_() {
+    el('mpo-overlay').classList.remove('open');
+    MPO.items = []; MPO.selectionId = null; MPO.selectionSlug = null; MPO.selectionItem = null;
+    MPO.ctx = null; MPO.onSuccess = null; MPO.mode = null;
+    clearErr();
+  }
+
+  function open_(mode, ctx, onSuccess) {
+    MPO.mode = mode; MPO.ctx = ctx; MPO.onSuccess = onSuccess;
+    MPO.selectionId = null; MPO.selectionSlug = null; MPO.selectionItem = null; MPO.role = 'write';
+    // VF-328: reset role buttons to default (write active, all enabled). applyRoleLock
+    // re-locks them once a Viewer row is clicked.
+    document.querySelectorAll('.mpo-role-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.role === 'write');
+      b.classList.remove('locked');
+      b.disabled = false;
+    });
+    el('mpo-role-desc').textContent = ROLE_DESCS.write;
+    el('mpo-role-desc').classList.remove('viewer');
+    el('mpo-search').value = '';
+    clearErr();
+
+    var fetchUrl;
+    if (mode === 'add-user-to-project') {
+      el('mpo-kicker').textContent = 'ADD MEMBER';
+      el('mpo-title').textContent = 'Choose a user to add';
+      el('mpo-context').innerHTML = 'To project: <span class="tag">' + _esc(ctx.project_slug) + '</span>';
+      MPO.submitLabel = 'Add to project';
+      el('mpo-list').innerHTML = '<div class="mpo-empty">Loading users...</div>';
+      fetchUrl = '/api/v2/projects/' + encodeURIComponent(ctx.project_slug) + '/addable-users';
+    } else if (mode === 'add-project-to-user') {
+      el('mpo-kicker').textContent = 'ADD TO PROJECT';
+      el('mpo-title').textContent = 'Choose a project to add them to';
+      var userLabel = (ctx.user_display_name || ctx.user_username || ctx.user_id);
+      el('mpo-context').innerHTML = 'User: <span class="tag">' + _esc(userLabel) + '</span>';
+      MPO.submitLabel = 'Add user to project';
+      el('mpo-list').innerHTML = '<div class="mpo-empty">Loading projects...</div>';
+      fetchUrl = '/admin/api/users/' + encodeURIComponent(ctx.user_id) + '/addable-projects';
+    } else {
+      showErr('Unsupported picker mode: ' + mode);
+      return;
+    }
+    el('mpo-submit').textContent = MPO.submitLabel;
+    el('mpo-overlay').classList.add('open');
+    setTimeout(function() { el('mpo-search').focus(); }, 50);
+    fetch(fetchUrl, { credentials: 'same-origin' })
+      .then(function(r) {
+        if (!r.ok) { return r.json().then(function(d) { throw new Error(d.detail || ('HTTP ' + r.status)); }); }
+        return r.json();
+      })
+      .then(function(items) {
+        MPO.items = Array.isArray(items) ? items : [];
+        renderList('');
+        updateSubmit();
+      })
+      .catch(function(e) { showErr('Could not load: ' + e.message); });
+  }
+
+  function submit_() {
+    if (!MPO.selectionId) return;
+    clearErr();
+    var url, payload;
+    if (MPO.mode === 'add-user-to-project') {
+      url = '/api/v2/projects/' + encodeURIComponent(MPO.ctx.project_slug) + '/members';
+      payload = { user_id: MPO.selectionId, role: MPO.role };
+    } else if (MPO.mode === 'add-project-to-user') {
+      // For project-to-user mode, selection is a project, and we add ctx.user_id as member
+      var slug = MPO.selectionSlug;
+      if (!slug) { showErr('Selected project has no slug'); return; }
+      url = '/api/v2/projects/' + encodeURIComponent(slug) + '/members';
+      payload = { user_id: MPO.ctx.user_id, role: MPO.role };
+    } else {
+      showErr('Unknown mode'); return;
+    }
+    el('mpo-submit').disabled = true;
+    el('mpo-submit').textContent = 'Adding...';
+    fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res) {
+      if (res.ok) {
+        var onS = MPO.onSuccess;
+        close_();
+        if (onS) onS(res.data);
+      } else {
+        showErr(res.data.detail || ('HTTP ' + res.status));
+        el('mpo-submit').disabled = false;
+        el('mpo-submit').textContent = MPO.submitLabel;
+      }
+    })
+    .catch(function(e) {
+      showErr('Request failed: ' + e.message);
+      el('mpo-submit').disabled = false;
+      el('mpo-submit').textContent = MPO.submitLabel;
+    });
+  }
+
+  // Wire up
+  el('mpo-cancel').addEventListener('click', close_);
+  el('mpo-submit').addEventListener('click', submit_);
+  el('mpo-overlay').addEventListener('click', function(e) { if (e.target.id === 'mpo-overlay') close_(); });
+  el('mpo-search').addEventListener('input', function(e) { MPO.selectionId = null; updateSubmit(); renderList(e.target.value); });
+  document.querySelectorAll('.mpo-role-btn').forEach(function(b) {
+    b.addEventListener('click', function() {
+      // VF-328: ignore clicks on locked buttons (Viewer + write/admin)
+      if (b.disabled || b.classList.contains('locked')) return;
+      document.querySelectorAll('.mpo-role-btn').forEach(function(x) { x.classList.toggle('active', x === b); });
+      MPO.role = b.dataset.role;
+      el('mpo-role-desc').textContent = ROLE_DESCS[MPO.role];
+      el('mpo-role-desc').classList.remove('viewer');
+    });
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && el('mpo-overlay').classList.contains('open')) close_();
+  });
+
+  // Public entry point
+  window.openMemberPicker = open_;
+})();
+</script>

@@ -1,0 +1,28 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · Audit log — VibeForge+{% endblock %}
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; Health &rsaquo; Audit log</div>
+<h1 class="ap-ws-title">Audit log</h1>
+<div class="ap-ws-subtitle">System-wide audit trail. Last 200 events — use the legacy <a href="/admin/auditlog">/admin/auditlog</a> view for filters + older entries.</div>
+
+<div class="ap-panel" style="padding:0;">
+  {% if events %}
+  <table class="ap-tbl">
+    <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--text-muted);">{{ e.when.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ e.actor }}</td>
+        <td><code>{{ e.action }}</code></td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted);">{{ e.target or '—' }}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted);overflow-wrap:anywhere;max-width:380px;">{{ e.details[:200] }}{% if e.details|length > 200 %}…{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div style="color:var(--text-muted);padding:20px;text-align:center;">no audit events</div>
+  {% endif %}
+</div>
+{% endblock %}

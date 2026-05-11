@@ -1,0 +1,14 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · {{ placeholder_label }} (in dev) — VibeForge+{% endblock %}
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; {{ placeholder_label }} <span style="color:var(--amber);">· in development</span></div>
+<h1 class="ap-ws-title">{{ placeholder_label }}</h1>
+<div class="ap-ws-subtitle">In development — placeholder surfaced to show intent + roadmap.</div>
+
+<div class="ap-placeholder">
+  <div class="lock">&#128274;</div>
+  <h3>{{ placeholder_label }}</h3>
+  <p>{{ placeholder_copy }}</p>
+  <div class="roadmap">Roadmap · pre-RC</div>
+</div>
+{% endblock %}

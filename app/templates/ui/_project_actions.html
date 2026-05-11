@@ -1,0 +1,195 @@
+{# ── Project Actions Menu — include in board/gantt topbar ── #}
+{# Requires: project in template context #}
+
+<div class="prj-actions-wrap" style="position:relative;display:inline-block;">
+  <button class="btn btn-ghost prj-actions-btn" onclick="toggleProjectMenu()" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);">
+    &#9881; Project
+  </button>
+  <div class="prj-actions-menu" id="projectActionsMenu" style="display:none;">
+    {% if project and project.status == 'active' %}
+    <button class="prj-action-item" onclick="projectAction('archive')">
+      <span style="color:var(--color-needs-review);">&#128451;</span> Archive
+    </button>
+    <button class="prj-action-item" onclick="projectAction('complete')">
+      <span style="color:var(--color-done);">&#10003;</span> Complete
+    </button>
+    {% elif project and project.status == 'completed' %}
+    <button class="prj-action-item" onclick="projectAction('reopen')">
+      <span style="color:var(--color-done);">&#8634;</span> Reopen
+    </button>
+    <button class="prj-action-item" onclick="projectAction('archive')">
+      <span style="color:var(--color-needs-review);">&#128451;</span> Archive
+    </button>
+    {% elif project and project.status == 'archived' %}
+    <button class="prj-action-item" onclick="projectAction('reopen')">
+      <span style="color:var(--color-done);">&#8634;</span> Reopen
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Project Action Dialogs ── #}
+<div id="prjActionOverlay" class="pcd-overlay" style="display:none;" onclick="if(event.target===this)closePrjAction()">
+  <div class="pcd-card" style="max-width:500px;">
+    <div class="pcd-neon-bar" id="prjActionNeon"></div>
+    <div class="pcd-header">
+      <span class="pcd-badge mono" id="prjActionBadge">ACTION</span>
+      <div style="flex:1;"></div>
+      <button class="pcd-close" onclick="closePrjAction()">&times;</button>
+    </div>
+    <div class="pcd-body">
+      <div id="prjActionSummary"></div>
+      <div id="prjActionTypeWrap" style="display:none;">
+        <div class="pcd-label">Reason Type</div>
+        <select id="prjActionType" class="pcd-path-input" style="color:var(--color-text);cursor:pointer;">
+          <option value="completed">Completed</option>
+          <option value="abandoned">Abandoned</option>
+        </select>
+      </div>
+      <div>
+        <div class="pcd-label" id="prjActionReasonLabel">Reason *</div>
+        <textarea class="pcd-resume" id="prjActionReason" rows="3" placeholder=""></textarea>
+      </div>
+    </div>
+    <div class="pcd-footer">
+      <button class="pcd-btn" onclick="closePrjAction()">Cancel</button>
+      <button class="pcd-btn" id="prjActionConfirm" onclick="confirmPrjAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleProjectMenu() {
+  var menu = document.getElementById('projectActionsMenu');
+  menu.style.display = menu.style.display === 'none' ? '' : 'none';
+}
+// Close menu on click outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.prj-actions-wrap')) {
+    var menu = document.getElementById('projectActionsMenu');
+    if (menu) menu.style.display = 'none';
+  }
+});
+
+var _prjActionMode = '';
+var _prjSlug = '{{ project.slug if project else "" }}';
+
+function projectAction(mode) {
+  _prjActionMode = mode;
+  document.getElementById('projectActionsMenu').style.display = 'none';
+  var overlay = document.getElementById('prjActionOverlay');
+  var badge = document.getElementById('prjActionBadge');
+  var neon = document.getElementById('prjActionNeon');
+  var summary = document.getElementById('prjActionSummary');
+  var typeWrap = document.getElementById('prjActionTypeWrap');
+  var reason = document.getElementById('prjActionReason');
+  var reasonLabel = document.getElementById('prjActionReasonLabel');
+  var btn = document.getElementById('prjActionConfirm');
+
+  reason.value = '';
+
+  if (mode === 'archive') {
+    badge.textContent = 'ARCHIVE PROJECT';
+    neon.style.background = 'linear-gradient(90deg, var(--color-needs-review), var(--color-blocked), var(--color-needs-review))';
+    typeWrap.style.display = '';
+    reasonLabel.textContent = 'Reason for archiving *';
+    reason.placeholder = 'Why is this project being archived?';
+    btn.textContent = 'Archive';
+    btn.style.background = 'var(--color-needs-review)';
+    btn.style.borderColor = 'var(--color-needs-review)';
+    // Fetch summary
+    fetch('/api/v2/projects/' + _prjSlug + '/archive-summary')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var html = '';
+        if (d.can_archive) {
+          html = '<div style="color:var(--color-done);font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2);">All tasks resolved. Ready to archive.</div>';
+          btn.textContent = 'Archive';
+        } else {
+          html = '<div style="color:var(--color-blocked);font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2);">Warning: ' + d.open_task_count + ' open tasks remain.</div>';
+          btn.textContent = 'Force Archive';
+          btn.style.background = 'var(--color-blocked)';
+          btn.style.borderColor = 'var(--color-blocked)';
+        }
+        html += '<div style="font-size:var(--text-xs);color:var(--color-text-muted);">Total: ' + d.total_tasks + ' tasks, Done: ' + d.done_tasks + '</div>';
+        summary.innerHTML = html;
+      });
+  } else if (mode === 'complete') {
+    badge.textContent = 'COMPLETE PROJECT';
+    neon.style.background = 'linear-gradient(90deg, var(--color-done), hsl(var(--hue) 68% 55%), var(--color-done))';
+    typeWrap.style.display = 'none';
+    reasonLabel.textContent = 'Completion summary *';
+    reason.placeholder = 'What was achieved? Key outcomes...';
+    btn.textContent = 'Complete Project';
+    btn.style.background = 'var(--color-done)';
+    btn.style.borderColor = 'var(--color-done)';
+    summary.innerHTML = '<div style="font-size:var(--text-xs);color:var(--color-text-muted);">Loading...</div>';
+    fetch('/api/v2/projects/' + _prjSlug + '/dashboard')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var t = d.tasks;
+        if (t.ready_to_complete) {
+          summary.innerHTML = '<div style="color:var(--color-done);font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2);">All ' + t.total + ' tasks resolved. Ready for completion.</div>';
+        } else {
+          summary.innerHTML = '<div style="color:var(--color-blocked);font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-2);">Cannot complete: ' + (t.total - t.resolved) + ' open tasks remain.</div>';
+          btn.textContent = 'Force Complete';
+          btn.style.background = 'var(--color-needs-review)';
+          btn.style.borderColor = 'var(--color-needs-review)';
+        }
+      });
+  } else if (mode === 'reopen') {
+    badge.textContent = 'REOPEN PROJECT';
+    neon.style.background = 'linear-gradient(90deg, var(--color-done), hsl(var(--hue) 68% 55%), var(--color-done))';
+    typeWrap.style.display = 'none';
+    reasonLabel.textContent = 'Reason for reopening *';
+    reason.placeholder = 'Why is this project being reopened?';
+    btn.textContent = 'Reopen';
+    btn.style.background = 'var(--color-done)';
+    btn.style.borderColor = 'var(--color-done)';
+    summary.innerHTML = '';
+  }
+  overlay.style.display = 'flex';
+}
+
+function closePrjAction() {
+  document.getElementById('prjActionOverlay').style.display = 'none';
+}
+
+function confirmPrjAction() {
+  var reason = document.getElementById('prjActionReason').value.trim();
+  if (!reason) { document.getElementById('prjActionReason').focus(); return; }
+
+  var url, body;
+  if (_prjActionMode === 'archive') {
+    url = '/api/v2/projects/' + _prjSlug + '/archive';
+    body = {reason_type: document.getElementById('prjActionType').value, reason: reason, force: document.getElementById('prjActionConfirm').textContent.indexOf('Force') >= 0};
+  } else if (_prjActionMode === 'complete') {
+    url = '/api/v2/projects/' + _prjSlug + '/complete';
+    body = {summary: reason, force: document.getElementById('prjActionConfirm').textContent.indexOf('Force') >= 0};
+  } else if (_prjActionMode === 'reopen') {
+    url = '/api/v2/projects/' + _prjSlug + '/reopen';
+    body = {reason: reason};
+  }
+
+  fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  }).then(function(r) {
+    if (r.ok) {
+      closePrjAction();
+      if (_prjActionMode === 'archive' && typeof playArchiveAnimation === 'function') {
+        fetch('/api/v2/projects/' + _prjSlug + '/dashboard').then(function(dr) { return dr.json(); }).then(function(d) {
+          var stats = (d.tasks.resolved || 0) + ' tasks · ' + (d.milestones || []).length + ' milestones · ' + (d.members || []).length + ' members';
+          playArchiveAnimation(d.name, stats, function() { location.reload(); });
+        }).catch(function() { location.reload(); });
+      } else { location.reload(); }
+    }
+    else { r.json().then(function(d) { vfToast(d.detail || 'Error'); }); }
+  });
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && document.getElementById('prjActionOverlay').style.display === 'flex') closePrjAction();
+});
+</script>

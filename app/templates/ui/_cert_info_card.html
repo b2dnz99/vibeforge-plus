@@ -1,0 +1,158 @@
+{# VF-322 — Shared cert info card (Health-aligned aesthetic).
+   Rendered on:
+     - /admin/portal/configuration/certificates (SA portal view)
+     - /ui/config → Certificate tab (VF-325/T4, all users)
+
+   Reuses the global .hcp-panel + .hcp-drow classes so the cert card looks
+   identical to the TLS & Backup panel on /ui/health. Callsite supplies
+   `ca_download_allowed` to control whether the CA download button renders.
+#}
+<div class="hcp-panel cert-info-card" id="certInfoCard"
+     data-ca-download-allowed="{{ 'true' if ca_download_allowed|default(False) else 'false' }}">
+  <div class="hcp-panel-title">Certificate</div>
+  <div id="cicBody">
+    <div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading…</div>
+  </div>
+</div>
+
+<style>
+  /* Tiny local additions — the status dot colour + CA download button.
+     Row layout comes from the global .hcp-drow class; no need to redefine. */
+  .cic-status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+    vertical-align: middle;
+  }
+  .cic-status-dot.ok { background: var(--color-done); box-shadow: 0 0 6px var(--color-done); }
+  .cic-status-dot.warn { background: var(--color-priority-medium); box-shadow: 0 0 6px var(--color-priority-medium); }
+  .cic-status-dot.critical { background: var(--color-priority-high); box-shadow: 0 0 6px var(--color-priority-high); }
+  .cic-status-dot.expired { background: var(--color-priority-critical); }
+  .cic-ca-footer {
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid rgba(148,163,184,0.08);
+    font-size: 0.6875rem;
+    color: var(--color-text-muted);
+  }
+  .cic-ca-footer a {
+    color: hsl(var(--hue) 68% 55%);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .cic-ca-footer a:hover { text-decoration: underline; }
+</style>
+
+<script>
+(function() {
+  const MODE_LABEL = {
+    'caddy_internal': 'Caddy Internal CA',
+    'acme': "Let's Encrypt / ACME",
+    'self_signed': 'Self-signed',
+    'file': 'CA-signed (operator file)',
+    'unknown': 'Unknown',
+  };
+
+  function _cicEsc(s) {
+    return (s == null ? '' : String(s))
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Local `dr()` matching Health's dr() — key|value flex row.
+  function _dr(label, value) {
+    return '<div class="hcp-drow"><span>' + label + '</span><strong>' + value + '</strong></div>';
+  }
+
+  async function _cicLoad() {
+    const card = document.getElementById('certInfoCard');
+    const body = document.getElementById('cicBody');
+    if (!card || !body) return;
+    const caAllowed = card.dataset.caDownloadAllowed === 'true';
+    try {
+      const r = await fetch('/api/v2/proxy/cert-info', { credentials: 'same-origin' });
+      if (!r.ok) {
+        body.innerHTML = _dr('Status', '<span style="color:var(--color-blocked);">HTTP ' + r.status + '</span>');
+        return;
+      }
+      const d = await r.json();
+      _cicRender(d, caAllowed, body);
+    } catch (e) {
+      body.innerHTML = _dr('Status', '<span style="color:var(--color-blocked);">Error</span>');
+    }
+  }
+
+  function _cicRender(d, caAllowed, body) {
+    if (d.status === 'no_tls') {
+      body.innerHTML = _dr('Status', '<span style="color:var(--color-blocked);">No TLS</span>') +
+                      _dr('Note', _cicEsc(d.note || ''));
+      return;
+    }
+    if (d.status !== 'ok') {
+      body.innerHTML = _dr('Status', '<span style="color:var(--color-blocked);">Error</span>') +
+                      _dr('Error', _cicEsc(d.error || 'unknown'));
+      return;
+    }
+
+    // Status dot + label (e.g. "• ok", "• 6d left — renew now")
+    const days = d.days_remaining;
+    let dotCls = 'ok', statusLbl = 'ok';
+    if (days < 0) { dotCls = 'expired'; statusLbl = 'EXPIRED ' + Math.abs(days) + 'd ago'; }
+    else if (days < 7) { dotCls = 'critical'; statusLbl = days + 'd left — renew now'; }
+    else if (days < 30) { dotCls = 'warn'; statusLbl = days + 'd left'; }
+    const statusValue = '<span class="cic-status-dot ' + dotCls + '"></span>' + _cicEsc(statusLbl);
+
+    const modeLbl = MODE_LABEL[d.mode] || d.mode;
+    const notAfter = (d.not_after || '').replace('T', ' ').slice(0, 19) + ' UTC';
+    const cn = d.cn || (d.san && d.san[0]) || '—';
+    const sans = (d.san && d.san.length > 1)
+      ? d.san.slice(1).join(', ')
+      : null;
+    const issuerCn = _cicIssuerCn(d.issuer);
+
+    let html =
+      _dr('Cert Status', statusValue) +
+      _dr('CN', _cicEsc(cn)) +
+      _dr('Issuer', _cicEsc(issuerCn || d.issuer || '—')) +
+      _dr('Expires', _cicEsc(notAfter)) +
+      _dr('Days Left', _cicEsc(String(days))) +
+      _dr('Type', _cicEsc(modeLbl) + (d.self_signed ? ' · self-signed' : ' · CA-signed') +
+                 (d.san && d.san[0] && d.san[0].startsWith('*.') ? ' · wildcard' : ''));
+
+    if (sans) {
+      html += _dr('Other SAN', _cicEsc(sans));
+    }
+
+    // Footer — CA download (only when Caddy internal), otherwise quiet reassurance.
+    if (d.mode === 'caddy_internal') {
+      if (caAllowed) {
+        html += '<div class="cic-ca-footer">Install trust: ' +
+                '<a href="/api/v2/proxy/ca-bundle" download="vibeforge-ca.crt">&#x1F4E5; Download CA bundle (.crt)</a></div>';
+      } else {
+        html += '<div class="cic-ca-footer">Caddy internal CA — your admin can hand out the CA bundle.</div>';
+      }
+    } else if (d.mode === 'acme' || d.mode === 'file') {
+      html += '<div class="cic-ca-footer">Trusted by browsers — no install required.</div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  // Extract CN from an RFC4514 issuer string like "CN=GlobalSign GCC R6 AlphaSSL CA 2025,O=GlobalSign nv-sa,C=BE"
+  function _cicIssuerCn(issuer) {
+    if (!issuer) return null;
+    const m = issuer.match(/(?:^|,)\s*CN=([^,]+)/);
+    return m ? m[1].trim() : null;
+  }
+
+  window._cicReload = _cicLoad;
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _cicLoad);
+  } else {
+    _cicLoad();
+  }
+})();
+</script>

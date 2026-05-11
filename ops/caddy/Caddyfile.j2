@@ -1,0 +1,120 @@
+{# VibeForge+ Caddy template — rendered by `render_caddyfile()` in app/api/v2/proxy.py.
+   One template, four modes. The `tls` directive is the only thing that varies
+   per mode; everything else (upstreams, headers, SSE tuning) stays identical.
+
+   Variables supplied by the renderer:
+     mode       — one of: "file", "caddy_internal", "self_signed", "acme"
+     acme_email — string (only used when mode=="acme")
+
+   Canonical on-disk output path: ops/caddy/Caddyfile (bind-mounted to the caddy
+   container at /etc/caddy/Caddyfile via a directory mount; see compose file).
+#}
+# VibeForge+ Caddy reverse proxy config.
+# GENERATED from ops/caddy/Caddyfile.j2 by the cert-lifecycle wizard (VF-326).
+# Hand-edits to this file WILL be overwritten the next time the wizard runs —
+# if you need to change something the template can't express, edit the template
+# and re-render via `docker exec vibeforge-app-1 python scripts/switch_proxy_mode.py`.
+# Mode at render time: {{ mode }}
+#
+# Replaces the previous nginx layer (VF-246 decision). Old nginx config is
+# archived under ops/archive/nginx-2026-04-22/.
+
+{
+    admin 0.0.0.0:2019
+
+    servers {
+        metrics
+    }
+
+    log {
+        output stdout
+        format console
+        level  INFO
+    }
+{%- if mode == "acme" %}
+
+    # ACME email for Let's Encrypt. Required for rate-limit recovery + expiry
+    # notifications from the CA. Set via the wizard's ACME form (v2 scope).
+    email {{ acme_email }}
+{%- endif %}
+}
+
+# ---------------------------------------------------------------------------
+# Public site — serves {{ hostname }}:443 (auto-redirects :80 → :443).
+# Mode: {{ mode }}
+# Hostname source: VF-326 wizard input, or $VIBEFORGE_HOSTNAME env fallback.
+# ---------------------------------------------------------------------------
+{{ hostname }}:443 {
+{%- if mode == "file" or mode == "self_signed" %}
+    tls /certs/fullchain.pem /certs/privkey.pem
+{%- elif mode == "caddy_internal" %}
+    # Caddy's internal CA — auto-mints + rotates a leaf, root lives in the
+    # caddy_data volume at /data/caddy/pki/authorities/local/root.crt.
+    # Download for device trust via /ui/config Certificate tab (VF-325).
+    tls internal
+{%- elif mode == "acme" %}
+    # Let's Encrypt via HTTP-01 (v2 scope — needs port 80 reachable publicly).
+    tls {
+        issuer acme
+    }
+{%- endif %}
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        Referrer-Policy           "no-referrer-when-downgrade"
+        # VF-326 force-reload marker: SHA-256 prefix of on-disk fullchain.pem.
+        # Forces Caddyfile bytes to differ when cert content changes so Caddy's
+        # /load endpoint full-reloads instead of no-op'ing on identical config.
+        X-Vf-Cert-Marker          "{{ cert_marker | default('none') }}"
+    }
+
+    # /api/v2/projects/* — SSE route (flush_interval -1 disables buffering).
+    handle /api/v2/projects/* {
+        reverse_proxy app:8000 {
+            flush_interval -1
+            transport http {
+                read_timeout 300s
+            }
+        }
+    }
+
+    # /health-dashboard/* — strip prefix.
+    handle /health-dashboard/* {
+        uri strip_prefix /health-dashboard
+        reverse_proxy health:9090
+    }
+
+    # /api/health/* — preserve prefix.
+    handle /api/health/* {
+        reverse_proxy health:9090
+    }
+
+    # /git/* — Forgejo.
+    handle /git/* {
+        uri strip_prefix /git
+        reverse_proxy forgejo:3000 {
+            transport http {
+                read_timeout  600s
+                write_timeout 600s
+            }
+        }
+        request_body {
+            max_size 512MB
+        }
+    }
+
+    # /vault/* — Vaultwarden.
+    handle /vault/* {
+        reverse_proxy vaultwarden:80
+        request_body {
+            max_size 128MB
+        }
+    }
+
+    # Catch-all — VibeForge+ app.
+    handle {
+        reverse_proxy app:8000
+    }
+}

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}My Tasks — VibeForge+{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title" style="display:flex;align-items:center;gap:var(--space-2);">
+    <div class="mc-radar"></div>
+    <span style="color:hsl(var(--hue) 68% 55%);font-weight:700;">My</span> Tasks
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{# ── Stats ── #}
+{% set agents_count = namespace(n=0) %}{% for g in agents_groups %}{% set agents_count.n = agents_count.n + (g.tasks | length) %}{% endfor %}
+{% set others_count = namespace(n=0) %}{% for g in others_groups %}{% set others_count.n = others_count.n + (g.tasks | length) %}{% endfor %}
+{% set agents_count = agents_count.n %}
+{% set others_count = others_count.n %}
+<div class="mc-stats-bar">
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Assigned to Me</div>
+    <div class="mc-stat-value mc-stat-accent">{{ mine | length }}</div>
+  </div>
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Agent Tasks</div>
+    <div class="mc-stat-value mc-stat-green">{{ agents_count }}</div>
+  </div>
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Others</div>
+    <div class="mc-stat-value">{{ others_count }}</div>
+  </div>
+  <div class="mc-stat-card">
+    <div class="mc-stat-label mono">Unassigned</div>
+    <div class="mc-stat-value">{{ unassigned | length }}</div>
+  </div>
+</div>
+
+{% macro task_card(entry, kind='mine') %}
+{% set t = entry.task %}
+{% set p = entry.project %}
+<div class="mtc-card priority-{{ t.priority }}{% if kind == 'agent' %} mtc-agent{% endif %}">
+  {# Top row: badges #}
+  <div class="mtc-top">
+    <span class="mtc-project mono">{{ p.prefix or p.slug[:3] | upper }}</span>
+    <span class="mtc-id mono">{{ entry.short_id }}</span>
+    <span class="mtc-status-badge mtc-status-{{ t.status }}">{{ t.status | replace('_', ' ') }}</span>
+    {% if t.task_type %}<span class="mtc-type-badge mtc-type-{{ t.task_type }}">{{ t.task_type }}</span>{% endif %}
+    <span class="mtc-priority-badge">
+      <span class="mtc-priority-dot"></span>{{ t.priority }}
+    </span>
+    {# Owner pill — initials of owner_display #}
+    <span class="mtc-owner-badge mtc-owner-{{ kind }}" title="{{ entry.owner_display }}" style="font-family:var(--font-mono);font-size:0.55rem;font-weight:700;padding:2px 6px;">
+      {% if kind == 'agent' %}&#129302; {% endif %}{{ entry.owner_initials }}
+    </span>
+  </div>
+
+  {# Title #}
+  <div class="mtc-title">{{ t.title }}</div>
+
+  {# Short description #}
+  {% if t.short_description %}
+  <div class="mtc-desc">{{ t.short_description }}</div>
+  {% endif %}
+
+  {# Phase + Milestone #}
+  <div class="mtc-meta">
+    {% if entry.ms_label %}<span class="mtc-ms mono">{{ entry.ms_label }}</span>{% endif %}
+    {% if entry.phase_name %}<span class="mtc-phase">{{ entry.phase_name }}</span>{% endif %}
+    {% if t.start_date or t.due_date %}
+    <span class="mtc-dates mono">
+      {% if t.start_date %}{{ t.start_date }}{% endif %}
+      {% if t.start_date and t.due_date %} — {% endif %}
+      {% if t.due_date %}{{ t.due_date }}{% endif %}
+    </span>
+    {% endif %}
+    {% if t.blocked_by_task_id %}<span class="mtc-blocked">&#9888; blocked</span>{% endif %}
+  </div>
+
+  {# Expandable detail (hidden by default) #}
+  <div class="mtc-expand" style="display:none;">
+    {% if t.description %}
+    <div class="mtc-full-desc">{{ t.description[:300] }}{% if t.description | length > 300 %}...{% endif %}</div>
+    {% endif %}
+    <div class="mtc-expand-meta">
+      <span>Project: <strong>{{ p.name }}</strong></span>
+      {% if entry.ms_name %}<span>Milestone: <strong>{{ entry.ms_label }} — {{ entry.ms_name }}</strong></span>{% endif %}
+      {% if entry.phase_name %}<span>Phase: <strong>{{ entry.phase_name }}</strong></span>{% endif %}
+      <span>Owner: <strong>{{ entry.owner_display }}</strong></span>
+    </div>
+  </div>
+
+  {# Actions #}
+  <div class="mtc-actions">
+    <button class="mtc-btn" onclick="toggleExpand(this)">Expand</button>
+    <a class="mtc-btn mtc-btn-open" href="/ui/projects/{{ p.slug }}/board?open={{ t.id }}">{% if is_viewer %}View{% else %}Open Task{% endif %}</a>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro section_label(text, dot_color='accent', count=0) %}
+<div class="mc-section-label mono" style="display:flex;align-items:center;gap:0.5rem;margin-top:var(--space-4);">
+  <span class="mc-dot-accent" style="background:{{ dot_color }};"></span>{{ text }}
+  <span style="font-family:var(--font-mono);font-size:0.6rem;color:var(--color-text-muted);">[{{ count }}]</span>
+</div>
+{% endmacro %}
+
+{# ── ASSIGNED TO ME ── #}
+<div style="margin-bottom:var(--space-4);">
+  {{ section_label('Assigned to Me', 'hsl(var(--hue) 68%% 55%%)', mine | length) }}
+  {% if mine %}
+  <div class="mtc-grid">
+    {% for entry in mine %}{{ task_card(entry, kind='mine') }}{% endfor %}
+  </div>
+  {% else %}
+  <div style="color:var(--color-text-muted);font-size:var(--text-xs);padding:var(--space-3) 0;font-style:italic;">No tasks assigned to you right now.</div>
+  {% endif %}
+</div>
+
+{# ── AGENTS ── #}
+{% if agents_groups %}
+<div style="margin-bottom:var(--space-4);">
+  {{ section_label('Agents', 'rgba(124,58,237,0.7)', agents_count) }}
+  {% for group in agents_groups %}
+  <div style="margin-top:var(--space-2);">
+    <div class="mono" style="font-size:0.6rem;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.4rem;">&#129302; {{ group.name }} <span style="color:var(--color-text-muted)">[{{ group.tasks | length }}]</span></div>
+    <div class="mtc-grid">
+      {% for entry in group.tasks %}{{ task_card(entry, kind='agent') }}{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── OTHER MEMBERS ── #}
+{% if others_groups %}
+<div style="margin-bottom:var(--space-4);">
+  {{ section_label('Other Members', 'rgba(16,185,129,0.7)', others_count) }}
+  {% for group in others_groups %}
+  <div style="margin-top:var(--space-2);">
+    <div class="mono" style="font-size:0.6rem;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.4rem;">&#128100; {{ group.name }} <span style="color:var(--color-text-muted)">[{{ group.tasks | length }}]</span></div>
+    <div class="mtc-grid">
+      {% for entry in group.tasks %}{{ task_card(entry, kind='other') }}{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── UNASSIGNED ── #}
+{% if unassigned %}
+<div style="margin-bottom:var(--space-4);">
+  {{ section_label('Unassigned / Triage', 'rgba(245,158,11,0.7)', unassigned | length) }}
+  <div class="mtc-grid">
+    {% for entry in unassigned %}{{ task_card(entry, kind='unassigned') }}{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── ORPHANED (owner no longer a member) ── #}
+{% if orphans %}
+<div style="margin-bottom:var(--space-4);">
+  {{ section_label('Orphaned (owner not a project member)', 'rgba(239,68,68,0.7)', orphans | length) }}
+  <div style="font-size:0.65rem;color:var(--color-text-muted);margin-bottom:0.4rem;font-style:italic;">These tasks are assigned to someone who is not a current member of the project. Consider reassigning.</div>
+  <div class="mtc-grid">
+    {% for entry in orphans %}{{ task_card(entry, kind='orphan') }}{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<script>
+function toggleExpand(btn) {
+  var card = btn.closest('.mtc-card');
+  var expand = card.querySelector('.mtc-expand');
+  var showing = expand.style.display !== 'none';
+  expand.style.display = showing ? 'none' : '';
+  btn.textContent = showing ? 'Expand' : 'Collapse';
+}
+
+document.querySelectorAll('.mtc-dates').forEach(function(el) {
+  var text = el.textContent.trim();
+  if (!text) return;
+  var parts = text.split(' \u2014 ');
+  el.textContent = parts.map(function(d) { return d.trim() ? vfDate(d.trim()) : ''; }).join(' \u2013 ');
+});
+</script>
+
+{% endblock %}

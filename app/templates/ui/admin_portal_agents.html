@@ -1,0 +1,873 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · Agents — VibeForge+{% endblock %}
+
+{% block extra_css %}
+  /* VF-343: Agents workspace — master-detail (3-pane) layout.
+     Mirrors the VF-329 Users workspace pattern. Replaces the prior Shape B
+     tree (apa-* classes refer to the legacy tree have been removed). Sidebar
+     comes from admin_base.html; this workspace fills the right pane with a
+     list (left) + detail (right) split. NO "+ New" action — agents are self-
+     service from the Board (per user-agent-model.md v3 §5.1).
+     Reuses NavGuard + RevealPanel + apuConfirm primitives from admin_base. */
+
+  /* Override admin_base ap-workspace constraints so the shell can take over. */
+  .ap-workspace { padding: 0; max-width: none; overflow: hidden; height: calc(100vh - 56px); }
+
+  .apa-shell {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* ── List pane ─────────────────────────────────────── */
+  .apa-list-pane {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .apa-list-head { padding: 18px 18px 12px; border-bottom: 1px solid var(--border); }
+  .apa-list-title-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .apa-list-title { font-size: 16px; font-weight: 700; }
+  .apa-list-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .apa-search-wrap { position: relative; margin-bottom: 10px; }
+  .apa-search-wrap::before {
+    content: '\2315'; position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+    color: var(--text-muted); font-size: 14px; pointer-events: none;
+  }
+  .apa-search {
+    width: 100%; padding: 7px 10px 7px 28px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text); font-size: 12px; outline: none;
+  }
+  .apa-search:focus { border-color: var(--violet); }
+  .apa-list-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .apa-chip {
+    padding: 4px 10px; background: var(--bg-panel-2);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-muted); font-family: var(--mono);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+    cursor: pointer; user-select: none;
+  }
+  .apa-chip.active { background: var(--violet-glow); color: var(--violet-2); border-color: var(--violet); }
+  .apa-chip:hover:not(.active) { color: var(--text); border-color: var(--border-strong); }
+  .apa-chip-count { color: var(--text-dim); margin-left: 4px; }
+
+  .apa-list-body { flex: 1; overflow-y: auto; padding: 4px; }
+  .apa-list-empty {
+    padding: 24px 16px; text-align: center;
+    color: var(--text-muted); font-style: italic; font-size: 12px;
+  }
+  .apa-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 4px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+  }
+  .apa-row:hover { background: var(--bg-panel-2); }
+  .apa-row.selected { background: var(--violet-glow); border-left-color: var(--violet); }
+  .apa-row.revoked { opacity: 0.55; }
+  .apa-row .apa-icon {
+    width: 30px; height: 30px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  .apa-icon.claude  { background: color-mix(in srgb, var(--violet) 50%, transparent); }
+  .apa-icon.gpt     { background: color-mix(in srgb, #5fb8d4 55%, transparent); }
+  .apa-icon.grok    { background: color-mix(in srgb, var(--amber) 50%, transparent); color: #1a1305; }
+  .apa-icon.codex   { background: color-mix(in srgb, var(--green) 50%, transparent); color: #051a0c; }
+  .apa-icon.service { background: color-mix(in srgb, var(--text-muted) 45%, transparent); }
+  .apa-icon.unknown { background: color-mix(in srgb, var(--text-muted) 30%, transparent); }
+  .apa-row-main { flex: 1; min-width: 0; }
+  .apa-row-name {
+    font-size: 13px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .apa-row-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+    margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .apa-row-pills { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .apa-status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .apa-status-dot.active  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .apa-status-dot.revoked { background: var(--text-dim); }
+
+  /* ── Detail pane ───────────────────────────────────── */
+  .apa-detail-pane {
+    background: var(--bg);
+    overflow-y: auto;
+    padding: 20px 24px 40px;
+    display: flex; flex-direction: column;
+  }
+  .apa-detail-empty {
+    margin: auto; text-align: center; padding: 40px 20px;
+  }
+  .apa-detail-empty-icon { font-size: 36px; opacity: 0.3; margin-bottom: 8px; }
+  .apa-detail-empty-msg { color: var(--text-muted); font-size: 13px; }
+
+  .apa-detail-head {
+    display: flex; align-items: flex-start; gap: 16px;
+    padding-bottom: 18px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .apa-detail-avatar {
+    width: 56px; height: 56px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 18px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  .apa-detail-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .apa-detail-meta {
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .apa-status-pill {
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 2px 8px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .apa-status-pill.active  { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+  .apa-status-pill.revoked { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-muted); }
+  /* VF-343: token-pending = active agent whose token was revoked-only.
+     Operator must reissue via board UI to restore auth. */
+  .apa-status-pill.token-pending,
+  .apa-pending-badge {
+    background: color-mix(in srgb, var(--amber) 18%, transparent);
+    color: var(--amber);
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 2px 8px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .apa-model-pill {
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 2px 8px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    background: var(--violet-glow); color: var(--violet-2);
+  }
+  .apa-detail-id {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    align-self: flex-start; margin-left: auto; white-space: nowrap;
+  }
+
+  .apa-detail-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 1280px) { .apa-detail-body { grid-template-columns: 1fr; } }
+
+  .apa-panel {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  .apa-panel.span2 { grid-column: 1 / -1; }
+  .apa-panel-title {
+    font-family: var(--mono); font-size: 10px; color: var(--violet-2);
+    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+    margin-bottom: 12px; padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .apa-panel-title.danger { color: var(--red-2); }
+  .apa-panel-count { font-family: var(--mono); font-size: 10px; color: var(--text-muted); font-weight: 400; letter-spacing: 0; }
+
+  .apa-kv-row {
+    display: grid; grid-template-columns: 140px 1fr; gap: 10px;
+    padding: 7px 0; border-bottom: 1px dashed var(--border);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .apa-kv-row:last-child { border-bottom: none; }
+  .apa-kv-k { color: var(--text-muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+  .apa-kv-v { color: var(--text); word-break: break-all; }
+
+  /* Audit-row: compact list of recent events for this agent. */
+  .apa-audit-row {
+    display: grid; grid-template-columns: 140px 140px 1fr; gap: 10px;
+    padding: 8px 0; border-bottom: 1px dashed var(--border);
+    font-family: var(--mono); font-size: 11px;
+    align-items: baseline;
+  }
+  .apa-audit-row:last-child { border-bottom: none; }
+  .apa-audit-t { color: var(--text-dim); }
+  .apa-audit-e { color: var(--violet-2); font-weight: 600; }
+  /* VF-343 PK feedback 2026-04-28: bump from text-muted to text for legibility -
+     the message is the actual content the operator wants to read. */
+  .apa-audit-d { color: var(--text); word-break: break-word; }
+
+  /* Actions / danger-zone cards */
+  .apa-actions-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .apa-act {
+    background: var(--bg-panel-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .apa-act.danger { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+  .apa-act.span2 { grid-column: 1 / -1; }
+  .apa-act-name { font-size: 13px; font-weight: 700; }
+  .apa-act-name .apa-act-hint { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-left: 8px; font-weight: 400; }
+  .apa-act-desc { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+  .apa-act-form { display: flex; flex-direction: column; gap: 8px; }
+  .apa-inp {
+    width: 100%; padding: 7px 10px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text);
+    font-family: var(--mono); font-size: 12px; outline: none;
+  }
+  .apa-inp:focus { border-color: var(--violet); }
+  .apa-act-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .apa-status-line { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+  .apa-status-line.err { color: var(--red-2); }
+  .apa-status-line.ok  { color: var(--green); }
+  .apa-guard {
+    background: color-mix(in srgb, var(--amber) 12%, transparent);
+    border-left: 3px solid var(--amber); border-radius: 3px;
+    padding: 8px 12px; font-size: 11px; color: var(--text); line-height: 1.5;
+  }
+
+  /* Migration banner kept off — replaced by full master-detail surface. */
+
+  /* Toast stack — copied from VF-329 Users for consistency. */
+  .apa-toast-stack {
+    position: fixed; top: 70px; right: 20px;
+    z-index: 11000;
+    display: flex; flex-direction: column; gap: 8px;
+    max-width: 360px;
+  }
+  .apa-toast {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 5px; padding: 12px 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    border-left: 3px solid var(--violet);
+    animation: apa-toast-in 0.18s ease-out;
+  }
+  .apa-toast.amber { border-left-color: var(--amber); }
+  .apa-toast.red   { border-left-color: var(--red); }
+  .apa-toast.green { border-left-color: var(--green); }
+  .apa-toast-title {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--violet-2); text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .apa-toast.amber .apa-toast-title { color: var(--amber); }
+  .apa-toast.red   .apa-toast-title { color: var(--red-2); }
+  .apa-toast.green .apa-toast-title { color: var(--green); }
+  .apa-toast-body { font-size: 12px; color: var(--text); line-height: 1.5; }
+  .apa-toast-body code {
+    background: var(--bg); padding: 1px 6px; border-radius: 3px;
+    border: 1px solid var(--border); font-family: var(--mono);
+  }
+  @keyframes apa-toast-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+{% endblock %}
+
+{% block content %}
+<div class="apa-shell">
+
+  <!-- ─── List pane ─── -->
+  <div class="apa-list-pane">
+    <div class="apa-list-head">
+      <div class="apa-list-title-row">
+        <div class="apa-list-title">Agents</div>
+        <div class="apa-list-count" id="apaCount">—</div>
+      </div>
+      <div class="apa-search-wrap">
+        <input class="apa-search" id="apaSearch" placeholder="Search agents, owners, projects..." oninput="apaSearch(this.value)">
+      </div>
+      <div class="apa-list-actions">
+        <span class="apa-chip active" data-filter="active"  onclick="apaSetFilter('active')">Active <span class="apa-chip-count" id="apaChipActive">—</span></span>
+        <span class="apa-chip"        data-filter="revoked" onclick="apaSetFilter('revoked')">Revoked <span class="apa-chip-count" id="apaChipRevoked">—</span></span>
+        <span class="apa-chip"        data-filter="all"     onclick="apaSetFilter('all')">All <span class="apa-chip-count" id="apaChipAll">—</span></span>
+      </div>
+    </div>
+    <div class="apa-list-body" id="apaList">
+      <div class="apa-list-empty">Loading agents…</div>
+    </div>
+  </div>
+
+  <!-- ─── Detail pane ─── -->
+  <div class="apa-detail-pane" id="apaDetail">
+    <div class="apa-detail-empty">
+      <div class="apa-detail-empty-icon">&#129302;</div>
+      <div class="apa-detail-empty-msg">Select an agent from the list.</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="apa-toast-stack" id="apaToastStack"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+/* VF-343 — Agents workspace, master-detail edition.
+   Mirrors VF-329 Users pattern. Consumes NavGuard + RevealPanel + apuConfirm
+   from admin_base.html. NO "+ New" action — agents are self-service from the
+   Board (per user-agent-model.md v3 §5.1). Actions: Cycle Token, Revoke,
+   Restore. Backend APIs already exist at /admin/portal/api/agents/{id}/{detail
+   |cycle|revoke|restore}. */
+
+const APA_AGENTS_INIT = {{ agents_payload | tojson }};
+const APA_OPEN_ID = {{ open_id | tojson }};
+
+const apa = {
+  agents: APA_AGENTS_INIT,
+  search: '',
+  filter: 'active',                 // VF-343 PK feedback 2026-04-28: default to Active
+  selectedId: null,
+  detailExtra: null,                // populated by /detail endpoint on selection (audit + extras)
+  detailAuditLimit: 50,             // default audit window; expand button bumps to 200
+};
+
+/* ── Helpers ──────────────────────────────────────────── */
+
+function apaEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function apaFmt(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString([], { dateStyle:'short', timeStyle:'short' });
+  } catch(e) { return iso; }
+}
+
+function apaIcon(modelType, name) {
+  const mt = (modelType || 'unknown').toLowerCase();
+  const known = ['claude','gpt','grok','codex','service','unknown'];
+  const cls = known.indexOf(mt) >= 0 ? mt : 'unknown';
+  const letter = ({claude:'C',gpt:'G',grok:'X',codex:'O',service:'S',unknown:'?'}[cls]) || '?';
+  return { cls, letter };
+}
+
+function apaModelPill(mt, mn) {
+  const text = mn ? (mt + ' / ' + mn) : (mt || 'unknown');
+  return '<span class="apa-model-pill">' + apaEsc(text) + '</span>';
+}
+
+function _formatError(d, fallback) {
+  if (!d) return fallback || 'Request failed.';
+  if (typeof d === 'string') return d;
+  if (typeof d.detail === 'string') return d.detail;
+  if (Array.isArray(d.detail)) {
+    return d.detail.map(e => {
+      if (!e) return '';
+      if (typeof e === 'string') return e;
+      if (typeof e === 'object') {
+        const loc = Array.isArray(e.loc) ? e.loc.slice(-1)[0] : null;
+        return (loc ? loc + ': ' : '') + (e.msg || JSON.stringify(e));
+      }
+      return String(e);
+    }).filter(Boolean).join(' · ');
+  }
+  if (d.detail && typeof d.detail === 'object') {
+    return d.detail.msg || JSON.stringify(d.detail);
+  }
+  if (d.message) return d.message;
+  return fallback || 'Request failed.';
+}
+
+async function _apaPost(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : null,
+    credentials: 'same-origin',
+  });
+  const text = await r.text();
+  let d = {};
+  try { d = JSON.parse(text); } catch { d = { raw: text }; }
+  return { ok: r.ok, status: r.status, data: d };
+}
+
+async function _apaGet(url) {
+  const r = await fetch(url, { credentials: 'same-origin' });
+  const text = await r.text();
+  let d = {};
+  try { d = JSON.parse(text); } catch { d = { raw: text }; }
+  return { ok: r.ok, status: r.status, data: d };
+}
+
+/* ── Toast ──────────────────────────────────────────── */
+function apaToast(title, body, tone='') {
+  const stack = document.getElementById('apaToastStack');
+  if (!stack) return;
+  const node = document.createElement('div');
+  node.className = 'apa-toast' + (tone ? ' ' + tone : '');
+  node.innerHTML = '<div class="apa-toast-title">' + apaEsc(title) + '</div>' +
+                   '<div class="apa-toast-body">' + body + '</div>';
+  stack.appendChild(node);
+  setTimeout(() => {
+    node.style.transition = 'opacity 0.4s';
+    node.style.opacity = '0';
+    setTimeout(() => node.remove(), 420);
+  }, 6000);
+}
+
+/* ── Filter / list rendering ────────────────────────── */
+
+function _filtered() {
+  const q = apa.search.trim().toLowerCase();
+  return apa.agents.filter(a => {
+    if (apa.filter === 'active'  && a.status !== 'active') return false;
+    if (apa.filter === 'revoked' && a.status !== 'revoked') return false;
+    if (q) {
+      const owner = a.owner ? ((a.owner.display_name || '') + ' ' + (a.owner.username || '')) : '';
+      const hay = (a.name + ' ' + (a.slug || '') + ' ' + owner + ' ' + (a.project_slug || '') + ' ' + (a.project_name || '')).toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+
+function apaRenderCounts() {
+  const all = apa.agents.length;
+  const active = apa.agents.filter(a => a.status === 'active').length;
+  const rev = apa.agents.filter(a => a.status === 'revoked').length;
+  document.getElementById('apaChipAll').textContent = all;
+  document.getElementById('apaChipActive').textContent = active;
+  document.getElementById('apaChipRevoked').textContent = rev;
+  document.getElementById('apaCount').textContent =
+    active + ' active' + (rev ? ' · ' + rev + ' revoked' : '');
+}
+
+function apaRenderList() {
+  const el = document.getElementById('apaList');
+  const list = _filtered();
+  if (!list.length) {
+    el.innerHTML = '<div class="apa-list-empty">No agents match.</div>';
+    return;
+  }
+  el.innerHTML = list.map(a => {
+    const sel = (apa.selectedId === a.id) ? ' selected' : '';
+    const rev = (a.status === 'revoked') ? ' revoked' : '';
+    const ic = apaIcon(a.model_type, a.name);
+    const ownerName = a.owner ? (a.owner.display_name || a.owner.username || '?') : '(orphan)';
+    const projSlug = a.project_slug || '(no project)';
+    const lastSeen = a.last_seen_at ? apaFmt(a.last_seen_at) : 'never';
+    const tokenBadge = a.token_pending ? '<span class="apa-pending-badge" title="Token revoked - operator must reissue via board UI">TOKEN</span>' : '';
+    return '<div class="apa-row' + sel + rev + '" data-id="' + apaEsc(a.id) + '" onclick="apaSelect(\'' + apaEsc(a.id) + '\')">' +
+      '<div class="apa-icon ' + ic.cls + '">' + ic.letter + '</div>' +
+      '<div class="apa-row-main">' +
+        '<div class="apa-row-name">' + apaEsc(a.name) + '</div>' +
+        '<div class="apa-row-meta">' + apaEsc(ownerName) + ' · ' + apaEsc(projSlug) + ' · ' + apaEsc(lastSeen) + '</div>' +
+      '</div>' +
+      '<div class="apa-row-pills">' + tokenBadge + '<div class="apa-status-dot ' + apaEsc(a.status) + '"></div></div>' +
+    '</div>';
+  }).join('');
+}
+
+function apaSetFilter(f) {
+  document.querySelectorAll('.apa-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === f));
+  apa.filter = f;
+  apaRenderList();
+}
+
+function apaSearch(q) {
+  apa.search = q;
+  apaRenderList();
+}
+
+/* ── Selection (NavGuard-wrapped) ──────────────────── */
+
+function apaSelect(id) {
+  if (apa.selectedId === id) return;
+  const target = function() {
+    apa.selectedId = id;
+    apa.detailExtra = null;          // clear before fetch
+    apa.detailAuditLimit = 50;       // reset to default on new selection
+    apaRenderList();
+    apaRenderDetail();
+    _fetchDetailExtra(id, 50);
+  };
+  if (window.NavGuard) NavGuard.guardedNav('switch agent', target);
+  else target();
+}
+
+async function _fetchDetailExtra(id, limit) {
+  const url = '/admin/portal/api/agents/' + encodeURIComponent(id) + '/detail?audit_limit=' + (limit || 50);
+  const { ok, data } = await _apaGet(url);
+  if (!ok || apa.selectedId !== id) return;  // user moved on
+  apa.detailExtra = data;
+  apa.detailAuditLimit = limit || 50;
+  apaRenderDetail();
+}
+
+function apaExpandAudit() {
+  if (!apa.selectedId) return;
+  apa.detailExtra = null;            // re-show loading state in activity panel
+  apaRenderDetail();
+  _fetchDetailExtra(apa.selectedId, 200);
+}
+
+/* ── Detail pane rendering ─────────────────────────── */
+
+function apaRenderDetail() {
+  const el = document.getElementById('apaDetail');
+  if (!apa.selectedId) {
+    el.innerHTML = '<div class="apa-detail-empty"><div class="apa-detail-empty-icon">&#129302;</div><div class="apa-detail-empty-msg">Select an agent from the list.</div></div>';
+    return;
+  }
+  const a = apa.agents.find(x => x.id === apa.selectedId);
+  if (!a) {
+    el.innerHTML = '<div class="apa-detail-empty"><div class="apa-detail-empty-msg">Agent not found in current list.</div></div>';
+    return;
+  }
+  el.innerHTML = _renderDetailHead(a) + '<div class="apa-detail-body">' + _renderDetailBody(a) + '</div>';
+  _wireDetailForms(a);
+}
+
+function _renderDetailHead(a) {
+  const ic = apaIcon(a.model_type, a.name);
+  return '<div class="apa-detail-head">' +
+    '<div class="apa-detail-avatar apa-icon ' + ic.cls + '" style="border-radius:10px;">' + ic.letter + '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div class="apa-detail-name">' + apaEsc(a.name) + '</div>' +
+      '<div class="apa-detail-meta">' +
+        apaModelPill(a.model_type, a.model_name) +
+        '<span class="apa-status-pill ' + a.status + '">' + apaEsc(a.status) + '</span>' +
+        (a.token_pending ? '<span class="apa-pending-badge">TOKEN REVOKED &middot; operator must reissue</span>' : '') +
+        (a.role_label ? ' · ' + apaEsc(a.role_label) : '') +
+        (a.token_prefix ? ' · token <code style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border);">' + apaEsc(a.token_prefix) + '…</code>' : '') +
+      '</div>' +
+    '</div>' +
+    '<div class="apa-detail-id">id: ' + apaEsc(a.id) + '</div>' +
+  '</div>';
+}
+
+function _renderDetailBody(a) {
+  // VF-343 PK feedback 2026-04-28: actions FIRST so the activity tail can grow
+  // long without pushing them off-screen. Fixed-height action panel + variable
+  // activity at the bottom = predictable visual flow regardless of audit depth.
+  return _renderActionsPanel(a) +
+         _renderProfilePanel(a) +
+         _renderOwnerPanel(a) +
+         _renderProjectPanel(a) +
+         _renderActivityPanel(a);
+}
+
+function _renderProfilePanel(a) {
+  const rows = [
+    ['Slug', a.slug || '—'],
+    ['Model type', a.model_type || 'unknown'],
+    ['Model name', a.model_name || '—'],
+    ['Token prefix', a.token_prefix ? (a.token_prefix + '…') : '—'],
+    ['Created', apaFmt(a.created_at)],
+    ['Last seen', a.last_seen_at ? apaFmt(a.last_seen_at) : 'never'],
+  ];
+  if (a.status === 'revoked') rows.push(['Revoked at', apaFmt(a.revoked_at)]);
+  return '<div class="apa-panel">' +
+    '<div class="apa-panel-title"><span>// Profile</span></div>' +
+    rows.map(([k,v]) => '<div class="apa-kv-row"><div class="apa-kv-k">' + apaEsc(k) + '</div><div class="apa-kv-v">' + apaEsc(v) + '</div></div>').join('') +
+  '</div>';
+}
+
+function _renderOwnerPanel(a) {
+  if (!a.owner) {
+    return '<div class="apa-panel">' +
+      '<div class="apa-panel-title"><span>// Owner</span></div>' +
+      '<div class="apa-list-empty" style="padding:14px 0;">Orphan — no owner attached. Schema invariant will tighten in a later release.</div>' +
+    '</div>';
+  }
+  const o = a.owner;
+  const rows = [
+    ['Username', o.username || '—'],
+    ['Display name', o.display_name || '—'],
+    ['Role', o.role || '—'],
+    ['Status', o.status || '—'],
+  ];
+  return '<div class="apa-panel">' +
+    '<div class="apa-panel-title"><span>// Owner</span><a href="/admin/portal/administration/users/' + apaEsc(o.id) + '" style="font-family:var(--mono);font-size:10px;color:var(--violet-2);text-decoration:none;letter-spacing:0;">open user &rarr;</a></div>' +
+    rows.map(([k,v]) => '<div class="apa-kv-row"><div class="apa-kv-k">' + apaEsc(k) + '</div><div class="apa-kv-v">' + apaEsc(v) + '</div></div>').join('') +
+  '</div>';
+}
+
+function _renderProjectPanel(a) {
+  return '<div class="apa-panel">' +
+    '<div class="apa-panel-title"><span>// Project</span></div>' +
+    '<div class="apa-kv-row"><div class="apa-kv-k">Slug</div><div class="apa-kv-v">' + apaEsc(a.project_slug || '—') + '</div></div>' +
+    '<div class="apa-kv-row"><div class="apa-kv-k">Name</div><div class="apa-kv-v">' + apaEsc(a.project_name || '—') + '</div></div>' +
+  '</div>';
+}
+
+function _renderActivityPanel(a) {
+  const ext = apa.detailExtra;
+  const limit = apa.detailAuditLimit || 50;
+  let body;
+  if (!ext) {
+    body = '<div class="apa-list-empty" style="padding:14px 0;">Loading recent activity…</div>';
+  } else if (!ext.audit || !ext.audit.length) {
+    body = '<div class="apa-list-empty" style="padding:14px 0;">No recent activity recorded.</div>';
+  } else {
+    body = ext.audit.map(e =>
+      '<div class="apa-audit-row">' +
+        '<div class="apa-audit-t">' + apaEsc(e.t) + '</div>' +
+        '<div class="apa-audit-e">' + apaEsc(e.e) + '</div>' +
+        '<div class="apa-audit-d">' + apaEsc(e.d) + '</div>' +
+      '</div>').join('');
+  }
+  const count = (ext && ext.audit) ? ext.audit.length : 0;
+  // VF-343 expand: only offer the bump if we are at default 50 AND filled it.
+  // (No point asking to "show more" when the agent has fewer than 50 events.)
+  const canExpand = (limit < 200) && (count >= limit);
+  const expandBtn = canExpand
+    ? '<div style="text-align:center;padding:12px 0 4px;"><button type="button" class="ap-btn" onclick="apaExpandAudit()">Show more (up to 200)</button></div>'
+    : '';
+  const reachedCap = (limit >= 200);
+  const capNote = reachedCap
+    ? '<div style="text-align:center;padding:10px 0 0;font-family:var(--mono);font-size:10px;color:var(--text-dim);">audit window cap (200) reached — open the audit log workspace for the full history</div>'
+    : '';
+  return '<div class="apa-panel span2">' +
+    '<div class="apa-panel-title"><span>// Recent activity</span><span class="apa-panel-count">last ' + count + ' event(s) &middot; window=' + limit + '</span></div>' +
+    body + expandBtn + capNote +
+  '</div>';
+}
+
+function _renderActionsPanel(a) {
+  const isActive = (a.status === 'active');
+  const isRevoked = (a.status === 'revoked');
+  const tokenPending = !!a.token_pending;
+  return '<div class="apa-panel danger span2">' +
+    '<div class="apa-panel-title danger"><span>// Danger zone &middot; agent actions</span></div>' +
+
+    '<div class="apa-actions-grid">' +
+
+      /* Cycle token — always available; mints new token, returns plaintext once via RevealPanel. */
+      '<div class="apa-act">' +
+        '<div class="apa-act-name">Cycle token<span class="apa-act-hint">' + (isActive ? 'rotate active token' : 'reissue token (will not auto-restore agent)') + '</span></div>' +
+        '<div class="apa-act-desc">Generates a fresh API token. Old token is invalidated immediately. The plaintext is shown ONCE here — copy it into the agent\'s config before dismissing.</div>' +
+        '<div class="apa-act-row">' +
+          '<button type="button" class="ap-btn primary" onclick="apaDoCycle(\'' + apaEsc(a.id) + '\')">Cycle token</button>' +
+          '<span class="apa-status-line" id="apaCycleStatus_' + apaEsc(a.id) + '"></span>' +
+        '</div>' +
+        '<div id="apaCycleReveal_' + apaEsc(a.id) + '"></div>' +
+      '</div>' +
+
+      /* Revoke token only — VF-343 PK feedback 2026-04-28. Active agents only.
+         Disabled if token is already pending (no token to revoke). */
+      (isActive ? (
+        '<div class="apa-act">' +
+          '<div class="apa-act-name">Revoke token only<span class="apa-act-hint">' + (tokenPending ? 'already pending' : 'agent stays active') + '</span></div>' +
+          '<div class="apa-act-desc">Invalidates the current token but leaves the agent active. Operator must visit the board UI to issue a new token. Use this when you want to force a token rotation without disabling the agent (e.g. suspected leak; agent is fine, token is not).</div>' +
+          '<div class="apa-act-row">' +
+            '<button type="button" class="ap-btn ghost-danger"' + (tokenPending ? ' disabled' : '') + ' onclick="apaDoRevokeTokenOnly(\'' + apaEsc(a.id) + '\')">Revoke token</button>' +
+            '<span class="apa-status-line" id="apaRevTokStatus_' + apaEsc(a.id) + '"></span>' +
+          '</div>' +
+        '</div>'
+      ) : '') +
+
+      /* Revoke agent — type-to-confirm name. */
+      (isActive ? (
+        '<div class="apa-act danger" id="apaRevokeForm_' + apaEsc(a.id) + '">' +
+          '<div class="apa-act-name">Revoke agent<span class="apa-act-hint">requires type-to-confirm</span></div>' +
+          '<div class="apa-act-desc">Disables the agent entirely. Token nulled AND agent marked revoked. Cannot be undone via API call alone — requires explicit Restore.</div>' +
+          '<div class="apa-act-form">' +
+            '<input type="text" class="apa-inp" id="apaRevConfirm_' + apaEsc(a.id) + '" placeholder="type \'' + apaEsc(a.name) + '\' to confirm" oninput="apaCheckRevoke(\'' + apaEsc(a.id) + '\')">' +
+          '</div>' +
+          '<div class="apa-act-row">' +
+            '<button type="button" class="ap-btn danger" id="apaRevBtn_' + apaEsc(a.id) + '" disabled onclick="apaDoRevoke(\'' + apaEsc(a.id) + '\')">Revoke agent</button>' +
+            '<span class="apa-status-line" id="apaRevStatus_' + apaEsc(a.id) + '"></span>' +
+          '</div>' +
+        '</div>'
+      ) : '') +
+
+      /* Restore — only when revoked. */
+      (isRevoked ? (
+        '<div class="apa-act">' +
+          '<div class="apa-act-name">Restore<span class="apa-act-hint">re-enable agent</span></div>' +
+          '<div class="apa-act-desc">Returns the agent to active status. Existing token remains revoked — Cycle token to mint a fresh one.</div>' +
+          '<div class="apa-act-row">' +
+            '<button type="button" class="ap-btn primary" onclick="apaDoRestore(\'' + apaEsc(a.id) + '\')">Restore</button>' +
+            '<span class="apa-status-line" id="apaResStatus_' + apaEsc(a.id) + '"></span>' +
+          '</div>' +
+        '</div>'
+      ) : '') +
+
+    '</div>' +
+  '</div>';
+}
+
+function _wireDetailForms(a) {
+  // Currently no dirty-form fields on the Agents detail (cycle / revoke / restore are
+  // stateless single-click actions; type-to-confirm input clears on its own). NavGuard
+  // wiring stays available if future agent-edit forms get added.
+}
+
+/* ── Type-to-confirm gate for Revoke ───────────────── */
+
+function apaCheckRevoke(id) {
+  const inp = document.getElementById('apaRevConfirm_' + id);
+  const btn = document.getElementById('apaRevBtn_' + id);
+  const a = apa.agents.find(x => x.id === id);
+  if (!inp || !btn || !a) return;
+  btn.disabled = (inp.value.trim() !== a.name);
+}
+
+/* ── Action handlers ───────────────────────────────── */
+
+async function apaDoCycle(id) {
+  if (!window.apuConfirm) {
+    apaToast('Confirm helper missing', 'apuConfirm not available — cannot show confirm dialog.', 'red');
+    return;
+  }
+  const a = apa.agents.find(x => x.id === id);
+  const ok = await apuConfirm({
+    title: 'CYCLE TOKEN?',
+    bodyHtml: 'About to mint a new token for <b>' + apaEsc(a.name) + '</b>. The old token will stop working immediately. The new plaintext is shown ONCE — make sure you can capture it.',
+    okLabel: 'Cycle now',
+    cancelLabel: 'Cancel',
+    tone: 'amber',
+  });
+  if (!ok) return;
+  const status = document.getElementById('apaCycleStatus_' + id);
+  if (status) { status.textContent = 'cycling…'; status.className = 'apa-status-line'; }
+  const r = await _apaPost('/admin/portal/api/agents/' + encodeURIComponent(id) + '/cycle');
+  if (!r.ok) {
+    const msg = _formatError(r.data);
+    if (status) { status.textContent = msg.slice(0, 200); status.className = 'apa-status-line err'; }
+    apaToast('Cycle failed', apaEsc(msg), 'red');
+    return;
+  }
+  if (status) { status.textContent = 'new token minted — see panel below'; status.className = 'apa-status-line ok'; }
+  const newToken = r.data.token || r.data.api_token || r.data.new_token || '';
+  if (!newToken) {
+    apaToast('No token in response', 'Cycle succeeded but the response did not include the plaintext token. Check server logs.', 'amber');
+    return;
+  }
+  // Mount RevealPanel with the new token
+  const revealParent = document.getElementById('apaCycleReveal_' + id);
+  if (revealParent && window.RevealPanel) {
+    revealParent.innerHTML = '';
+    RevealPanel.mount(revealParent, {
+      kicker: 'NEW AGENT TOKEN · SHOWN ONCE',
+      label: 'Agent ' + a.name + ' new token',
+      value: newToken,
+      dangerCopy: 'This is the only time the plaintext token will be shown. Copy it into the agent\'s config now. If you lose it, cycle again.',
+      ackLabel: 'I have securely shared this token with the agent operator',
+    });
+  }
+  // Update local model — token_prefix changed
+  if (r.data.token_prefix) a.token_prefix = r.data.token_prefix;
+  if (a.status !== 'active') a.status = 'active';
+  apaRenderList();
+  apaToast('Token cycled', 'New token issued for <b>' + apaEsc(a.name) + '</b>. Reveal panel above.', 'green');
+}
+
+async function apaDoRevoke(id) {
+  const a = apa.agents.find(x => x.id === id);
+  if (!a) return;
+  if (!window.apuConfirm) {
+    apaToast('Confirm helper missing', 'apuConfirm not available.', 'red');
+    return;
+  }
+  const ok = await apuConfirm({
+    title: 'REVOKE AGENT?',
+    bodyHtml: 'About to revoke <b>' + apaEsc(a.name) + '</b>. The agent will fail authentication immediately on the next request. Use Restore to undo.',
+    okLabel: 'Revoke',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  if (!ok) return;
+  const status = document.getElementById('apaRevStatus_' + id);
+  if (status) { status.textContent = 'revoking…'; status.className = 'apa-status-line'; }
+  const r = await _apaPost('/admin/portal/api/agents/' + encodeURIComponent(id) + '/revoke');
+  if (!r.ok) {
+    const msg = _formatError(r.data);
+    if (status) { status.textContent = msg.slice(0, 200); status.className = 'apa-status-line err'; }
+    apaToast('Revoke failed', apaEsc(msg), 'red');
+    return;
+  }
+  if (status) { status.textContent = 'revoked'; status.className = 'apa-status-line ok'; }
+  a.status = 'revoked';
+  if (r.data.revoked_at) a.revoked_at = r.data.revoked_at;
+  apaRenderList();
+  apaRenderDetail();
+  apaToast('Agent revoked', '<b>' + apaEsc(a.name) + '</b> can no longer authenticate.', 'amber');
+}
+
+async function apaDoRevokeTokenOnly(id) {
+  const a = apa.agents.find(x => x.id === id);
+  if (!a) return;
+  if (!window.apuConfirm) {
+    apaToast('Confirm helper missing', 'apuConfirm not available.', 'red');
+    return;
+  }
+  const ok = await apuConfirm({
+    title: 'REVOKE TOKEN ONLY?',
+    bodyHtml: 'About to invalidate the current token for <b>' + apaEsc(a.name) + '</b>. The agent stays active but cannot authenticate until the operator issues a new token via the board UI. Use this to force token rotation (e.g. suspected leak) without disabling the agent.',
+    okLabel: 'Revoke token',
+    cancelLabel: 'Cancel',
+    tone: 'amber',
+  });
+  if (!ok) return;
+  const status = document.getElementById('apaRevTokStatus_' + id);
+  if (status) { status.textContent = 'revoking…'; status.className = 'apa-status-line'; }
+  const r = await _apaPost('/admin/portal/api/agents/' + encodeURIComponent(id) + '/revoke-token');
+  if (!r.ok) {
+    const msg = _formatError(r.data);
+    if (status) { status.textContent = msg.slice(0, 200); status.className = 'apa-status-line err'; }
+    apaToast('Revoke token failed', apaEsc(msg), 'red');
+    return;
+  }
+  if (status) { status.textContent = 'token revoked - operator must reissue'; status.className = 'apa-status-line ok'; }
+  // Update local model: token cleared, status stays active, token_pending true
+  a.token_prefix = '';
+  a.token_pending = true;
+  apaRenderList();
+  apaRenderDetail();
+  apaToast('Token revoked', '<b>' + apaEsc(a.name) + '</b> token invalidated. Agent stays active; operator must reissue via board UI.', 'amber');
+}
+
+async function apaDoRestore(id) {
+  const a = apa.agents.find(x => x.id === id);
+  if (!a) return;
+  if (!window.apuConfirm) {
+    apaToast('Confirm helper missing', 'apuConfirm not available.', 'red');
+    return;
+  }
+  const ok = await apuConfirm({
+    title: 'RESTORE AGENT?',
+    bodyHtml: 'Returns <b>' + apaEsc(a.name) + '</b> to active status. The previous token remains revoked — Cycle token to mint a fresh one.',
+    okLabel: 'Restore',
+    cancelLabel: 'Cancel',
+    tone: 'amber',
+  });
+  if (!ok) return;
+  const status = document.getElementById('apaResStatus_' + id);
+  if (status) { status.textContent = 'restoring…'; status.className = 'apa-status-line'; }
+  const r = await _apaPost('/admin/portal/api/agents/' + encodeURIComponent(id) + '/restore');
+  if (!r.ok) {
+    const msg = _formatError(r.data);
+    if (status) { status.textContent = msg.slice(0, 200); status.className = 'apa-status-line err'; }
+    apaToast('Restore failed', apaEsc(msg), 'red');
+    return;
+  }
+  if (status) { status.textContent = 'restored'; status.className = 'apa-status-line ok'; }
+  a.status = 'active';
+  a.revoked_at = null;
+  apaRenderList();
+  apaRenderDetail();
+  apaToast('Agent restored', '<b>' + apaEsc(a.name) + '</b> back to active. Cycle token to mint a fresh one.', 'green');
+}
+
+/* ── Boot ──────────────────────────────────────────── */
+
+(function init() {
+  apaRenderCounts();
+  apaRenderList();
+  if (APA_OPEN_ID) {
+    apaSelect(APA_OPEN_ID);
+  }
+})();
+{% endblock %}

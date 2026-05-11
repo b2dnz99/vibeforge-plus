@@ -1,0 +1,41 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · Environment — VibeForge+{% endblock %}
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; Lifecycle &rsaquo; Environment info</div>
+<h1 class="ap-ws-title">Environment info</h1>
+<div class="ap-ws-subtitle">Which instance you're staring at right now. Sanity-check the tier indicator before any destructive action — every destructive workspace re-surfaces the confirmation, but the cheapest catch is at the top of this page.</div>
+
+<div class="ap-panel violet-edge">
+  <div class="ap-panel-title">// ENVIRONMENT</div>
+  <div class="ap-drow"><div class="ap-drow-k">Tier</div><div class="ap-drow-v">
+    <span class="ap-dot {% if env_info.tier == 'PROD' %}red{% elif env_info.tier == 'UAT' %}amber{% else %}green{% endif %}"></span>
+    <b>{{ env_info.tier }}</b> · {{ env_info.hostname }}
+  </div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Install time</div><div class="ap-drow-v">{{ env_info.install_time | default('—') }} <span style="color:var(--text-dim);font-size:10px;">(earliest user)</span></div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Postgres</div><div class="ap-drow-v">{{ env_info.postgres_version | default('—') }}</div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Alembic head</div><div class="ap-drow-v">{{ env_info.alembic_head | default('—') }}</div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Python</div><div class="ap-drow-v">{{ env_info.python | default('—') }}</div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Platform</div><div class="ap-drow-v">{{ env_info.platform | default('—') }}</div></div>
+</div>
+
+<div class="ap-panel">
+  <div class="ap-panel-title">// TIME &amp; NTP</div>
+  <div class="ap-drow"><div class="ap-drow-k">Container OS tz</div><div class="ap-drow-v">{{ env_info.os_tz | default('UTC') }} <span style="color:var(--text-dim);font-size:10px;">({{ env_info.tz_offset | default('+0000') }})</span></div></div>
+  <div class="ap-drow"><div class="ap-drow-k">NTP pool template</div><div class="ap-drow-v">
+    <span style="font-family:var(--mono);">{{ env_info.ntp_template | default('pool.ntp.org') }}</span>
+    <span style="color:var(--text-dim);font-size:10px;"> (Geo-inferred; default country: {{ env_info.ntp_country | default('au') }})</span>
+  </div></div>
+  <div class="ap-drow"><div class="ap-drow-k">DST auto-detect</div><div class="ap-drow-v">
+    <span class="ap-dot {% if env_info.ntp_dst_auto %}green{% else %}amber{% endif %}"></span>{{ 'enabled' if env_info.ntp_dst_auto else 'disabled' }}
+  </div></div>
+</div>
+
+<div class="ap-callout">
+  <b>NTP is host-managed, not app-managed.</b> Containers don't sync time; the app shows what the OS sees. To configure host NTP, run this on the VibeForge+ host:
+  <pre style="margin-top:8px;white-space:pre-wrap;">{{ env_info.ntp_host_cmd | default('timedatectl set-ntp true') }}</pre>
+</div>
+
+<div class="ap-callout {% if env_info.tier == 'PROD' %}{% else %}violet{% endif %}">
+  <b>Environment confirmation:</b> the tier above is the source of truth for "which environment am I about to modify?". Every destructive workspace re-surfaces it in the confirm step — PROD never passes silently.
+</div>
+{% endblock %}

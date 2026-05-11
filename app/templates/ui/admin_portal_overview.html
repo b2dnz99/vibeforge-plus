@@ -1,0 +1,80 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · Overview — VibeForge+{% endblock %}
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; Landing</div>
+<h1 class="ap-ws-title">Elevated Portal</h1>
+<div class="ap-ws-subtitle">
+  Dangerous actions live here.
+  {% if elevation_ttl_seconds %}Your elevation expires in {{ "%d:%02d"|format(elevation_ttl_seconds // 60, elevation_ttl_seconds % 60) }}.{% endif %}
+  Click an item in the sidebar or pick one of the tiles below.
+</div>
+
+<div class="ap-callout violet">
+  <b>Paradigm:</b> the left sidebar mirrors the board — primes with sub-items. Each workspace carries its own design language. Mutation buttons are <b style="color:var(--red-2)">red</b> to mark the danger zone. Padlocked items are placeholders for the roadmap.
+</div>
+
+<div class="ap-panel">
+  <div class="ap-panel-title">// QUICK ACCESS</div>
+  {# VF-344 PK feedback 2026-04-28: tile order matches the new sidebar IA
+     (Administration → Health → Configuration → Lifecycle). Operator-priority
+     sequence — daily touchpoints first, rare config later. #}
+  <div class="ap-tile-grid">
+    <a class="ap-tile" href="/admin/portal/administration/users">
+      <div class="ap-tile-kicker">// ADMINISTRATION</div>
+      <div class="ap-tile-title">Users</div>
+      <div class="ap-tile-stat"><span class="n">{{ active_user_count }}</span> active · <span class="n">{{ suspended_count }}</span> suspended</div>
+    </a>
+    <a class="ap-tile" href="/admin/portal/administration/agents">
+      <div class="ap-tile-kicker">// ADMINISTRATION</div>
+      <div class="ap-tile-title">Agents</div>
+      <div class="ap-tile-stat"><span class="n">{{ active_agents }}</span> active</div>
+    </a>
+    <a class="ap-tile" href="/admin/portal/health/overview">
+      <div class="ap-tile-kicker">// HEALTH</div>
+      <div class="ap-tile-title">System overview</div>
+      <div class="ap-tile-stat">Containers + TLS + backup</div>
+    </a>
+    <a class="ap-tile" href="/admin/portal/health/audit">
+      <div class="ap-tile-kicker">// HEALTH</div>
+      <div class="ap-tile-title">Audit log</div>
+      <div class="ap-tile-stat">system-wide audit trail</div>
+    </a>
+    <a class="ap-tile" href="/admin/portal/configuration/certificates">
+      <div class="ap-tile-kicker">// CONFIGURATION</div>
+      <div class="ap-tile-title">Certificates</div>
+      <div class="ap-tile-stat">
+        Mode: <span class="n">{{ cert_summary.mode if cert_summary else '—' }}</span>
+        {% if cert_summary and cert_summary.days is not none %}
+        · <span class="n">{{ cert_summary.days }} days</span> remaining
+        {% endif %}
+      </div>
+    </a>
+    <a class="ap-tile" href="/admin/portal/lifecycle/environment">
+      <div class="ap-tile-kicker">// LIFECYCLE</div>
+      <div class="ap-tile-title">Environment</div>
+      <div class="ap-tile-stat"><span class="n">{{ tier }}</span> · <span class="n">{{ hostname }}</span></div>
+    </a>
+  </div>
+</div>
+
+<div class="ap-panel">
+  <div class="ap-panel-title">// RECENT ELEVATED ACTIONS</div>
+  {% if recent_events %}
+  <table class="ap-tbl">
+    <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for e in recent_events %}
+      <tr>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--text-muted);">{{ e.when.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ e.actor }}</td>
+        <td><code>{{ e.action }}</code></td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--text-muted);overflow-wrap:anywhere;">{{ e.details[:140] }}{% if e.details|length > 140 %}…{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div style="color:var(--text-muted);padding:20px 0;text-align:center;font-family:var(--mono);font-size:12px;">no elevated actions yet</div>
+  {% endif %}
+</div>
+{% endblock %}

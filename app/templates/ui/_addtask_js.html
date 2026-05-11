@@ -1,0 +1,237 @@
+{# ── Add Task JS — shared partial (include inside <script> block) ── #}
+/* ── Add Task — MC card (same sizing as editor drawer) ── */
+function openAddTask() {
+  var overlay = document.getElementById('addTaskOverlay');
+  var card = document.getElementById('addTaskCard');
+  overlay.style.display = 'block';
+  // Same size as editor drawer
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var w = vw >= 1920 ? Math.round(vw * 0.75) : vw >= 1024 ? Math.round(vw * 0.80) : Math.min(520, vw * 0.92);
+  var h = vh >= 1080 ? Math.round(vh * 0.88) : vh >= 768 ? Math.round(vh * 0.85) : Math.min(680, vh * 0.9);
+  w = Math.min(w, vw - 16); h = Math.min(h, vh - 16);
+  var cx = (vw - w) / 2, cy = (vh - h) / 2;
+  cx = Math.max(8, Math.min(cx, vw - w - 8));
+  cy = Math.max(8, Math.min(cy, vh - h - 8));
+  card.style.width = w + 'px';
+  card.style.height = h + 'px';
+  card.style.left = cx + 'px';
+  card.style.top = cy + 'px';
+  // Animate in
+  card.style.transition = 'opacity 0.3s, transform 0.3s';
+  card.style.transform = 'scale(0.9)';
+  card.offsetHeight;
+  card.classList.add('is-visible');
+  card.style.transform = 'scale(1)';
+  setTimeout(() => { card.style.transition = 'opacity 0.15s'; }, 350);
+  // Clear all fields for fresh form
+  _resetAddTaskForm();
+  // Pre-populate start date as today
+  var today = new Date().toISOString().split('T')[0];
+  document.getElementById('addTaskStart').value = today;
+  // Populate assignee dropdown from project members
+  _loadAssignees();
+  // Focus title
+  setTimeout(() => document.getElementById('addTaskTitle').focus(), 100);
+}
+
+function _loadAssignees() {
+  var sel = document.getElementById('addTaskOwner');
+  if (sel.dataset.loaded) return;
+  fetch('/api/v2/projects/{{ project.slug }}/members').then(r => r.json()).then(function(members) {
+    sel.innerHTML = '';
+    members.forEach(function(m) {
+      var icon = m.type === 'agent' ? '\u{1F916}' : '\u{1F464}';
+      var opt = document.createElement('option');
+      opt.value = m.type + ':' + m.name;
+      opt.textContent = icon + ' ' + m.name + ' (' + m.type + ')';
+      sel.appendChild(opt);
+    });
+    sel.dataset.loaded = '1';
+  });
+}
+
+// Drag + Resize for Add Task card (same pattern as editor)
+(function() {
+  var card, startX, startY, startL, startT, startW, startH, mode;
+  function onDown(e) {
+    if (e.target.closest('button, input, select, textarea, a')) return;
+    e.preventDefault();
+    card = document.getElementById('addTaskCard');
+    var r = card.getBoundingClientRect();
+    startX = e.clientX; startY = e.clientY;
+    startL = r.left; startT = r.top; startW = r.width; startH = r.height;
+    mode = e.target.id === 'addTaskResize' ? 'resize' : 'drag';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+  function onMove(e) {
+    var dx = e.clientX - startX, dy = e.clientY - startY;
+    if (mode === 'drag') {
+      card.style.left = (startL + dx) + 'px';
+      card.style.top = (startT + dy) + 'px';
+    } else {
+      card.style.width = Math.max(400, startW + dx) + 'px';
+      card.style.height = Math.max(300, startH + dy) + 'px';
+    }
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    var hdr = document.getElementById('addTaskHeader');
+    var rsz = document.getElementById('addTaskResize');
+    if (hdr) hdr.addEventListener('mousedown', onDown);
+    if (rsz) rsz.addEventListener('mousedown', onDown);
+  });
+})()
+
+function _addTaskHasData() {
+  return !!(document.getElementById('addTaskTitle').value.trim() ||
+            document.getElementById('addTaskShortDesc').value.trim() ||
+            document.getElementById('addTaskDesc').value.trim() ||
+            document.getElementById('addTaskNote').value.trim());
+}
+
+function closeAddTask() {
+  var card = document.getElementById('addTaskCard');
+  card.style.transition = 'opacity 0.25s, transform 0.25s';
+  card.style.transform = 'scale(0.95)';
+  card.classList.remove('is-visible');
+  setTimeout(() => {
+    document.getElementById('addTaskOverlay').style.display = 'none';
+    card.style.transform = '';
+    _resetAddTaskForm();
+  }, 280);
+}
+
+function _resetAddTaskForm() {
+  document.getElementById('addTaskTitle').value = '';
+  document.getElementById('addTaskShortDesc').value = '';
+  document.getElementById('addTaskDesc').value = '';
+  document.getElementById('addTaskNote').value = '';
+  document.getElementById('addTaskStatus').value = 'backlog';
+  document.getElementById('addTaskPriority').value = 'medium';
+  document.getElementById('addTaskType').value = 'feature';
+  var ownerSel = document.getElementById('addTaskOwner');
+  if (ownerSel.options.length) ownerSel.selectedIndex = 0;
+  document.getElementById('addTaskMilestone').selectedIndex = 0;
+  document.getElementById('addTaskStart').value = '';
+  document.getElementById('addTaskDue').value = '';
+}
+
+function handleAddTaskClickAway(e) {
+  if (e.target !== document.getElementById('addTaskOverlay')) return;
+  handleAddTaskCancel();
+}
+
+function handleAddTaskCancel() {
+  if (_addTaskHasData()) {
+    _showConfirm('Unsaved Task', 'You have unsaved data. Save with current values or discard?',
+      function() { submitAddTask(); },
+      function() { closeAddTask(); }
+    );
+  } else {
+    closeAddTask();
+  }
+}
+
+function submitAddTask() {
+  var title = document.getElementById('addTaskTitle').value.trim();
+  if (!title) {
+    // Title required — flash the field
+    var el = document.getElementById('addTaskTitle');
+    el.style.borderColor = '#ef4444';
+    el.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.2)';
+    el.focus();
+    setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 1500);
+    return;
+  }
+
+  var status = document.getElementById('addTaskStatus').value;
+  var body = {
+    title: title,
+    short_description: document.getElementById('addTaskShortDesc').value || '',
+    description: document.getElementById('addTaskDesc').value || '',
+    status: status,
+    priority: document.getElementById('addTaskPriority').value,
+    owner_label: document.getElementById('addTaskOwner').value.split(':')[0] || 'agent',
+    milestone_label: document.getElementById('addTaskMilestone').value || null,
+    task_type: document.getElementById('addTaskType').value || null,
+  };
+  var startVal = document.getElementById('addTaskStart').value;
+  var dueVal = document.getElementById('addTaskDue').value;
+  if (startVal) body.start_date = startVal;
+  if (dueVal) body.due_date = dueVal;
+
+  var btn = document.getElementById('addTaskSubmitBtn');
+  btn.textContent = 'Creating...';
+  btn.disabled = true;
+
+  var owner = body.owner_label;
+  fetch('/api/v2/projects/{{ project.slug }}/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => {
+    if (r.ok) {
+      return r.json();
+    } else {
+      return r.json().then(d => { throw new Error(d.detail || 'Error creating task'); });
+    }
+  }).then(task => {
+    // Post initial activity note: created + assigned
+    var noteBody = 'Task created. Assigned to ' + (owner === 'agent' ? 'Agent' : 'Human') + '.';
+    if (body.milestone_label) noteBody += ' Milestone: ' + body.milestone_label + '.';
+    fetch('/api/v2/tasks/' + task.id + '/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: noteBody, author_type: 'system', author_name: 'System' }),
+    });
+    // Post user's initial note if provided
+    var initialNote = document.getElementById('addTaskNote').value.trim();
+    if (initialNote) {
+      fetch('/api/v2/tasks/' + task.id + '/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: '<p>' + initialNote.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</p>', author_type: 'human', author_name: window._currentUserName || 'Human' }),
+      });
+    }
+
+    // Flash the button green
+    btn.textContent = 'Created';
+    btn.classList.add('fce-btn-saved');
+
+    // Refresh the target column (board) or reload page (gantt)
+    var colId = 'col-' + status;
+    var col = document.getElementById(colId);
+    if (col) {
+      htmx.ajax('GET', col.getAttribute('hx-get'), { target: '#' + colId, swap: 'innerHTML' }).then(() => {
+        setTimeout(() => {
+          var cards = col.querySelectorAll('.task-card');
+          if (cards.length) {
+            var newCard = cards[cards.length - 1];
+            newCard.style.animationDuration = (window.__dragFlowMs || 1600) + 'ms';
+            newCard.classList.add('task-card--pulse-green');
+            setTimeout(() => newCard.classList.remove('task-card--pulse-green'),
+              (window.__dragFlowMs || 1600) + 200);
+          }
+        }, 100);
+      });
+    }
+
+    // Close after brief feedback, reload if not on board
+    setTimeout(() => {
+      closeAddTask();
+      btn.textContent = 'Create';
+      btn.classList.remove('fce-btn-saved');
+      btn.disabled = false;
+      if (!col) location.reload(); // Gantt or other page — full reload
+    }, 800);
+  }).catch(err => {
+    vfToast(err.message);
+    btn.textContent = 'Create';
+    btn.disabled = false;
+  });
+}
+

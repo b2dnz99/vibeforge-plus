@@ -1,0 +1,1250 @@
+{% extends "ui/admin_base.html" %}
+
+{# VF-326 / T5 — Cert Lifecycle Wizard. Re-homed under VF-327 escalation portal.
+   Seven-stage client-driven state machine mirroring the spec mockup at
+   0-MD/proposed/T5-CERT-LIFECYCLE-MOCKUP.html. The admin portal shell
+   provides the topbar + sidebar + Back-to-Board; this template fills only
+   the {% block content %} slot. #}
+
+{% block title %}Admin · Change cert — VibeForge+{% endblock %}
+
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; Configuration &rsaquo; Certificates &rsaquo; Change cert</div>
+<div style="margin-bottom:12px;">
+  <a class="ap-btn" href="/admin/portal/configuration/certificates">&larr; Back to Certificates</a>
+</div>
+<div class="cw-wrap">
+
+  <div class="cw-progress-rail" id="cwRail"></div>
+
+  <div id="cwStage">
+    {# ── Stage 1 — current cert ──────────────────────────────────────── #}
+    <section data-stage="current">
+      <div class="cw-stage-header">
+        <div>
+          <div class="cw-kicker">// STAGE 1 &middot; current cert</div>
+          <h1 class="cw-title">What's deployed right now</h1>
+          <div class="cw-subtitle">Review the live cert before changing anything. Cancel returns to Proxy Admin without side effects.</div>
+        </div>
+      </div>
+      <div class="ap-panel violet-edge">
+        <div class="ap-panel-title">// LIVE CERT</div>
+        {% set _mode = current_cert.mode | default("unknown") %}
+        <div class="ap-drow"><div class="ap-drow-k">Mode</div><div class="ap-drow-v"><span class="ap-dot {% if _mode == 'unknown' %}red{% elif _mode == 'self_signed' %}amber{% else %}green{% endif %}"></span>{{ _mode }}</div></div>
+        <div class="ap-drow"><div class="ap-drow-k">Issuer</div><div class="ap-drow-v">{{ current_cert.issuer | default("-") }}</div></div>
+        <div class="ap-drow"><div class="ap-drow-k">Subject</div><div class="ap-drow-v">{{ current_cert.subject | default(current_cert.cn | default("-")) }}</div></div>
+        <div class="ap-drow"><div class="ap-drow-k">Expiry</div>
+          <div class="ap-drow-v">
+            {% set d = current_cert.days_remaining %}
+            {% if d is none %}
+              <span class="ap-dot green"></span>{{ current_cert.note | default("managed by Caddy") }}
+            {% else %}
+              <span class="ap-dot {% if d < 0 %}red{% elif d <= 7 %}amber{% else %}green{% endif %}"></span>
+              {{ current_cert.not_after | default("-") }} ({{ d }} days)
+            {% endif %}
+          </div>
+        </div>
+        <div class="ap-drow"><div class="ap-drow-k">SAN</div><div class="ap-drow-v">{{ current_cert.san | default([]) | join(", ") or "(none)" }}</div></div>
+      </div>
+      <div class="ap-callout violet">
+        <b>What happens next:</b> pick a target mode on the next screen. The wizard walks you through any credentials it needs, validates the proposed cert before swapping, then performs a single atomic swap with rollback-on-fail. Typical end-to-end time: ~5 seconds.
+      </div>
+    </section>
+
+    {# ── Stage 2 — pick target mode ──────────────────────────────────── #}
+    <section data-stage="pick" hidden>
+      <div class="cw-stage-header">
+        <div>
+          <div class="cw-kicker">// STAGE 2 &middot; pick target mode</div>
+          <h1 class="cw-title">Which cert source do you want?</h1>
+          <div class="cw-subtitle">Pick the mode to switch to. The badge on the current mode is informational; you can re-deploy the same mode with new files.</div>
+        </div>
+      </div>
+      {# VF-326 graduate 2026-04-28: split mode picker into RC-ready (operator-supplied)
+         and POST RC/1.0 (automated, deferred under VF-337). Order matches PK's
+         operator-priority sequence: bootstrap → primary advanced → secondary advanced. #}
+      {% set current_mode = current_cert.mode | default("unknown") %}
+      {% set MODE_DEF = {
+        "self_signed": {"n":1,"label":"Self-signed (wizard-mint)","kicker":"// BOOTSTRAP","desc":"Leaf-only cert minted here. Simplest bootstrap; each device must trust the leaf or accept the warning.","renewal":"manual","ca":"no (no chain)"},
+        "file":        {"n":2,"label":"Paste PEM + KEY","kicker":"// FILE","desc":"Operator-supplied fullchain + private key. Most common for corporate/wildcard certs from your own CA.","renewal":"manual","ca":"n/a"},
+        "pfx":         {"n":3,"label":"Upload PFX","kicker":"// PFX","desc":"PKCS#12 bundle + password. Unpacked to PEM/KEY server-side. Common on Windows AD CS / GlobalSign exports.","renewal":"manual","ca":"n/a"},
+        "caddy_internal": {"n":4,"label":"Caddy Internal CA","kicker":"// AUTO","desc":"Caddy mints its own root CA and rotates leaf certs on its own clock. Best for LAN or zero-public-DNS.","renewal":"auto (~30 days)","ca":"yes (download tab)"},
+        "acme":           {"n":5,"label":"Let's Encrypt (ACME)","kicker":"// PUBLIC","desc":"Publicly-trusted cert via Let's Encrypt. Requires port 80 reachable + public DNS.","renewal":"auto (60-90 days)","ca":"no (browser-trusted)"}
+      } %}
+
+      <div class="cw-mode-section-title"><span>// RC-READY &middot; OPERATOR-SUPPLIED</span></div>
+      <div class="cw-mode-grid">
+        {% for target in ["self_signed", "file", "pfx"] %}
+          {% set m = MODE_DEF[target] %}
+          <div class="cw-mode-card" data-target="{{ target }}" onclick="cwSelectTarget('{{ target }}')">
+            <div class="cw-mode-kicker">{{ m.kicker }}</div>
+            <div class="cw-mode-label">
+              <span class="cw-mode-card-num">{{ m.n }}</span>{{ m.label }}
+              {% if target == current_mode %}<span class="cw-badge cw-badge-current">current</span>{% endif %}
+            </div>
+            <div class="cw-mode-desc">{{ m.desc }}</div>
+            <div class="cw-mode-meta">
+              <span><b>Renewal:</b> {{ m.renewal }}</span>
+              <span><b>CA bundle:</b> {{ m.ca }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      {# VF-336/VF-337: caddy_internal + ACME disabled pre-RC. Pinned to a separate
+         section with the POST RC/1.0 pill so they're visible (operators know
+         what's coming) but not selectable until the umbrella unblocks. #}
+      <div class="cw-mode-section-title">
+        <span>// POST RC/1.0 &middot; AUTOMATED MODES</span>
+        <span class="cw-badge cw-badge-soon">DEFERRED</span>
+      </div>
+      <div class="cw-mode-grid">
+        {% for target in ["caddy_internal", "acme"] %}
+          {% set m = MODE_DEF[target] %}
+          <div class="cw-mode-card cw-mode-disabled" data-target="{{ target }}">
+            <div class="cw-mode-kicker">{{ m.kicker }}</div>
+            <div class="cw-mode-label">
+              <span class="cw-mode-card-num">{{ m.n }}</span>{{ m.label }}
+              <span class="cw-badge cw-badge-soon">post RC/1.0</span>
+            </div>
+            <div class="cw-mode-desc">{{ m.desc }}{% if target == "caddy_internal" %} <em>Needs CA-install workflow to avoid HSTS lockout (VF-336).</em>{% else %} <em>Needs DNS/port discovery + ACME challenge config (post-RC).</em>{% endif %}</div>
+            <div class="cw-mode-meta">
+              <span><b>Renewal:</b> {{ m.renewal }}</span>
+              <span><b>CA bundle:</b> {{ m.ca }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    {# ── Stage 3 — mode-specific forms (5 variants in one section) ───── #}
+    <section data-stage="form" hidden>
+      <div class="cw-stage-header">
+        <div>
+          <div class="cw-kicker">// STAGE 3 &middot; <span id="cwFormKicker">provide</span></div>
+          <h1 class="cw-title" id="cwFormTitle">-</h1>
+          <div class="cw-subtitle" id="cwFormSubtitle">-</div>
+        </div>
+      </div>
+
+      <form id="cwForm" enctype="multipart/form-data" autocomplete="off">
+        <input type="hidden" name="target_mode" id="cwTargetMode" value="">
+
+        <div class="ap-panel violet-edge" data-form="self_signed" hidden>
+          <div class="ap-panel-title">// PROVIDE &middot; self-signed</div>
+          <div class="cw-row">
+            <label class="cw-label">Primary hostname</label>
+            <input class="cw-input" name="hostname" value="{{ request.url.hostname or '' }}">
+            <div class="cw-hint">Pre-filled from request host. Change to rotate the subject.</div>
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">Extra SANs (comma-separated, optional)</label>
+            <input class="cw-input" name="extra_sans" placeholder="10.0.0.42, vibeforge.lan">
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">Validity (days)</label>
+            <input class="cw-input" name="validity_days" value="365" type="number" min="1" max="825">
+            <div class="cw-hint">Longer means fewer rotations but more exposure if the key is compromised.</div>
+          </div>
+        </div>
+
+        <div class="ap-panel violet-edge" data-form="file" hidden>
+          <div class="ap-panel-title">// PROVIDE &middot; PEM + KEY</div>
+          <div class="ap-callout violet">
+            <b>Hostname comes from the cert you upload</b> (CN / SAN). The wizard does not modify hostname for this mode &mdash; whatever names your cert covers is what gets served.
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">fullchain.pem (leaf + intermediates)</label>
+            <div class="cw-fileload">
+              <input type="file" id="cwLoadFc" accept=".pem,.crt,.cer,.txt" hidden onchange="cwLoadFromFile(this, 'fullchain_text')">
+              <button type="button" class="cw-btn cw-btn-sm" onclick="document.getElementById('cwLoadFc').click()">Load from file&hellip;</button>
+              <span class="cw-fileload-status" id="cwLoadFcStatus"></span>
+            </div>
+            <textarea class="cw-textarea" name="fullchain_text" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+            <div class="cw-hint">Paste the full chain or load from a .pem/.crt file. Leaf cert first, then intermediates. Chain order matters.</div>
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">privkey.pem</label>
+            <div class="cw-fileload">
+              <input type="file" id="cwLoadPk" accept=".pem,.key,.txt" hidden onchange="cwLoadFromFile(this, 'privkey_text')">
+              <button type="button" class="cw-btn cw-btn-sm" onclick="document.getElementById('cwLoadPk').click()">Load from file&hellip;</button>
+              <span class="cw-fileload-status" id="cwLoadPkStatus"></span>
+            </div>
+            <textarea class="cw-textarea" name="privkey_text" placeholder="-----BEGIN PRIVATE KEY-----&#10;..."></textarea>
+            <div class="cw-hint">Paste the key or load from a .pem/.key file. Held in memory only until validation passes.</div>
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">Key passphrase (if encrypted, optional)</label>
+            <input type="password" class="cw-input" name="key_passphrase">
+          </div>
+        </div>
+
+        <div class="ap-panel violet-edge" data-form="pfx" hidden>
+          <div class="ap-panel-title">// PROVIDE &middot; PFX upload</div>
+          <div class="ap-callout violet">
+            <b>Hostname comes from the cert inside the PFX</b> (CN / SAN). The wizard does not modify hostname for this mode &mdash; whatever names your bundle covers is what gets served.
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">PFX file</label>
+            <input type="file" class="cw-file" name="pfx_file" accept=".pfx,.p12">
+            <div class="cw-hint">Bundle is parsed server-side via openssl pkcs12. Not stored until validation passes.</div>
+          </div>
+          <div class="cw-row">
+            <label class="cw-label">PFX password</label>
+            <input type="password" class="cw-input" name="pfx_password" placeholder="Required for most enterprise PFX">
+          </div>
+        </div>
+
+        <div class="ap-panel violet-edge" data-form="caddy_internal" hidden>
+          <div class="ap-panel-title">// PROVIDE &middot; Caddy Internal CA</div>
+          {# VF-326 KISS pre-fill: VM hostname only. Don't pull from cert SAN
+             because it can be a wildcard or root-domain — neither is right for
+             caddy_internal which mints per-hostname leaves. Operator can override;
+             cwValidateHost gates the field in-page before swap. #}
+          <div class="cw-row">
+            <label class="cw-label">Hostname for the cert</label>
+            <input class="cw-input" name="hostname" id="cwCiHost"
+                   value="{{ request.url.hostname or '' }}"
+                   oninput="cwValidateHost(this)">
+            <div class="cw-hint">Pre-filled from this VM's hostname. Caddy's internal CA mints a leaf cert covering this hostname only (no IP, no wildcards in this mode). Override if you serve under a different name.</div>
+            <div class="cw-host-validity" id="cwCiHostValidity"></div>
+          </div>
+          <div class="ap-callout violet">
+            <b>Caddy mints the cert</b> from its own CA root on next reload. First-time clients must install the CA bundle (Certificate tab in Settings). Existing trusters stay trusted &mdash; no re-install.
+          </div>
+        </div>
+
+        <div class="ap-panel violet-edge" data-form="acme" hidden>
+          <div class="ap-panel-title">// PROVIDE &middot; ACME</div>
+          <div class="ap-callout amber">
+            <b>ACME is v2.</b> HTTP-01 needs port 80 publicly reachable + a public DNS record.
+            The wizard will ship this path once VF-T5 phase 2 lands.
+          </div>
+        </div>
+      </form>
+
+      {# VF-326 Bug 2: in-page validation error display on Stage 3.
+         Stage 3 -> Stage 4 transition is gated; if /cert/validate returns red
+         rows (e.g. wrong PFX password, mismatched key/cert, expired cert),
+         the operator sees the failure inline here and stays on Stage 3 to
+         fix the inputs — no transition to Stage 4 with broken state. #}
+      <div class="cw-form-errors" id="cwFormErrors" hidden></div>
+    </section>
+
+    {# ── Stage 4 — validation preview ────────────────────────────────── #}
+    <section data-stage="preview" hidden>
+      <div class="cw-stage-header">
+        <div>
+          <div class="cw-kicker">// STAGE 4 &middot; validate before swap</div>
+          <h1 class="cw-title" id="cwPreviewTitle">Preview</h1>
+          <div class="cw-subtitle">Six safety checks. Any red row blocks the swap. Amber is warn-and-continue.</div>
+        </div>
+      </div>
+      <div class="ap-panel violet-edge">
+        <div class="ap-panel-title">// VALIDATION</div>
+        <div id="cwValidationRows"><div class="cw-loading">Validating...</div></div>
+      </div>
+    </section>
+
+    {# ── Stage 5 — confirm ───────────────────────────────────────────── #}
+    <section data-stage="confirm" hidden>
+      <div class="cw-stage-header">
+        <div>
+          <div class="cw-kicker">// STAGE 5 &middot; last confirm</div>
+          <h1 class="cw-title">Ready to swap</h1>
+          <div class="cw-subtitle">Review the cost and click <b>Swap now</b> to commit.</div>
+        </div>
+      </div>
+      <div class="ap-panel violet-edge">
+        <div class="ap-panel-title">// SWAP SUMMARY</div>
+        <div class="ap-drow"><div class="ap-drow-k">From mode</div><div class="ap-drow-v" id="cwConfFrom">-</div></div>
+        <div class="ap-drow"><div class="ap-drow-k">To mode</div><div class="ap-drow-v" id="cwConfTo">-</div></div>
+        <div class="ap-drow"><div class="ap-drow-k">HTTPS interruption</div><div class="ap-drow-v">~2 seconds during reload</div></div>
+        <div class="ap-drow"><div class="ap-drow-k">Rollback on fail</div><div class="ap-drow-v"><span class="ap-dot green"></span>enabled (5s TLS probe)</div></div>
+      </div>
+      <div class="ap-callout">
+        <b>What the server will do in order:</b>
+        <ol>
+          <li>Back up current <code>/certs/*.pem</code> + <code>Caddyfile</code> to <code>/certs/backup/&lt;ts&gt;/</code></li>
+          <li>Truncate-in-place new PEM + KEY (inode-preserving)</li>
+          <li>Write new Caddyfile matching target mode</li>
+          <li>POST <code>/load</code> to Caddy admin API</li>
+          <li>TLS handshake probe (&lt; 5s) &mdash; rolls back both files on fail</li>
+        </ol>
+      </div>
+    </section>
+
+    {# ── Stage 6 — swap in flight ────────────────────────────────────── #}
+    <section data-stage="swap" hidden>
+      <div class="cw-stage-header">
+        <div>
+          <div class="cw-kicker">// STAGE 6 &middot; in flight</div>
+          <h1 class="cw-title">Swapping cert...</h1>
+          <div class="cw-subtitle">Do not close this tab until the outcome screen renders.</div>
+        </div>
+      </div>
+      {# VF-326 ceremony graduate (2026-04-28): 6-row stepper paced ~750ms/step.
+         Backend swap completes in <1s; visual ceremony runs in parallel and
+         caps the perceived duration so user sees what's happening (matches
+         CERT-WIZARD-VISUAL-TIDY-MOCKUP.html "Performing atomic swap"). On
+         API failure the ceremony aborts mid-flight and the failure outcome
+         replaces this stage. #}
+      <div class="ap-panel violet-edge">
+        <div class="ap-panel-title">// LIVE PROGRESS</div>
+        <div class="cw-swap-step pending" data-step="backup">    <div class="cw-swap-icon">1</div><div class="cw-swap-text">Snapshot current /certs/ to backup</div></div>
+        <div class="cw-swap-step pending" data-step="write">     <div class="cw-swap-icon">2</div><div class="cw-swap-text">Write new fullchain.pem + privkey.pem (atomic)</div></div>
+        <div class="cw-swap-step pending" data-step="render">    <div class="cw-swap-icon">3</div><div class="cw-swap-text">Re-render Caddyfile with new cert_marker</div></div>
+        <div class="cw-swap-step pending" data-step="reload">    <div class="cw-swap-icon">4</div><div class="cw-swap-text">POST Caddyfile to caddy:2019/load</div></div>
+        <div class="cw-swap-step pending" data-step="handshake"> <div class="cw-swap-icon">5</div><div class="cw-swap-text">Verify TLS handshake on caddy:443</div></div>
+        <div class="cw-swap-step pending" data-step="hash">      <div class="cw-swap-icon">6</div><div class="cw-swap-text">Verify wire-cert hash == on-disk leaf hash</div></div>
+      </div>
+    </section>
+
+    {# ── Stage 7 — outcome ───────────────────────────────────────────── #}
+    <section data-stage="outcome" hidden>
+      <div id="cwOutcome"></div>
+    </section>
+  </div>
+
+  <div class="cw-footer" id="cwFooter"></div>
+
+</div>
+
+<style>
+  /* ── reusing .pa-role-pill, .hcp-panel from the admin proxy page ──── */
+
+  .cw-back-link {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--transition-fast);
+  }
+  .cw-back-link:hover { border-color: hsl(var(--hue) 68% 55%); color: hsl(var(--hue) 68% 55%); }
+
+  .cw-wrap {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: var(--space-4) var(--space-5) var(--space-6);
+  }
+
+  /* VF-326 graduate 2026-04-28: rounder pip strip (per CERT-WIZARD-VISUAL-TIDY-MOCKUP).
+     Active state uses inset box-shadow (no layout shift on transition). Done state shows
+     a green dot top-right; all pips share a consistent 10px radius matching panel cards. */
+  .cw-progress-rail {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin-bottom: var(--space-5);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+  }
+  .cw-progress-rail .cw-step {
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px 8px;
+    background: var(--color-surface-sub, rgba(148,163,184,0.06));
+    border: 1px solid var(--color-border);
+    color: var(--color-text-subtle);
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: center;
+    min-height: 44px;
+    position: relative;
+    transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+  .cw-progress-rail .cw-step.active {
+    color: #fff;
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 16%, transparent);
+    box-shadow:
+      inset 0 0 0 2px hsl(var(--hue) 68% 55%),
+      0 4px 16px color-mix(in srgb, hsl(var(--hue) 68% 55%) 30%, transparent);
+  }
+  .cw-progress-rail .cw-step.done {
+    color: var(--color-text);
+    background: var(--color-surface-sub, rgba(148,163,184,0.05));
+  }
+  .cw-progress-rail .cw-step.done::before {
+    content: "";
+    position: absolute;
+    top: 6px; right: 8px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--color-done, #10b981);
+  }
+
+  .cw-stage-header { margin-bottom: var(--space-4); }
+  .cw-kicker {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: hsl(var(--hue) 68% 55%);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .cw-title { font-size: 1.4rem; font-weight: 700; margin: 4px 0 4px; }
+  .cw-subtitle { color: var(--color-text-muted); font-size: 0.85rem; }
+
+  /* VF-326 KISS refactor 2026-04-27: panel/drow/dot/callout primitives are
+     defined in admin_base.html as .ap-panel/.ap-drow/.ap-dot/.ap-callout etc.
+     Wizard uses those directly — bespoke .cw-* duplicates removed below. */
+
+  /* VF-326 in-page hostname validity indicator. */
+  .cw-host-validity {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    margin-top: 4px;
+    min-height: 1em;
+    letter-spacing: 0.02em;
+  }
+  .cw-host-validity[data-state="ok"]  { color: var(--green, #4fd18b); }
+  .cw-host-validity[data-state="bad"] { color: var(--red-2, #d76b6b); }
+
+  /* VF-326 Bug 2: Stage 3 inline validation error block. */
+  .cw-form-errors {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--red-2, #d76b6b) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red-2, #d76b6b) 35%, transparent);
+    border-left: 3px solid var(--red-2, #d76b6b);
+    border-radius: var(--radius-sm);
+  }
+  .cw-form-errors-title {
+    color: var(--red-2, #d76b6b);
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .cw-form-errors-body {
+    color: var(--text, #f3f4f6);
+    font-size: 0.8rem;
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  /* VF-326 Stage 1 polish — mode pill with per-mode accent. */
+  /* dead .cw-modepill / .ap-dot duplicate / .cw-callout blocks removed */
+
+  /* ── mode picker grid ─────────────────────────────────────────────── */
+  .cw-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .cw-mode-card {
+    background: var(--color-surface-sub, rgba(148,163,184,0.05));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform 0.08s;
+  }
+  .cw-mode-card:hover:not(.cw-mode-disabled) {
+    border-color: hsl(var(--hue) 68% 55%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, hsl(var(--hue) 68% 55%) 25%, transparent),
+                0 0 24px -8px color-mix(in srgb, hsl(var(--hue) 68% 55%) 30%, transparent);
+    transform: translateY(-1px);
+  }
+  /* VF-326 graduate 2026-04-28: inset 2px violet ring (no layout shift on select).
+     Replaces the previous border-swap which caused a 1px jump. Inset 5px accent
+     bar retained for the violet edge feel. */
+  .cw-mode-card.selected {
+    background: rgba(139, 125, 247, 0.18);
+    box-shadow:
+      inset 0 0 0 2px var(--violet, #8b7df7),
+      inset 5px 0 0 var(--violet, #8b7df7),
+      0 4px 24px -6px rgba(139, 125, 247, 0.4);
+    transform: translateY(-1px);
+  }
+  .cw-mode-card.selected .cw-mode-kicker {
+    color: var(--violet, #8b7df7);
+  }
+  .cw-mode-card.selected::after {
+    content: 'SELECTED';
+    position: absolute;
+    top: 10px; right: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: #fff;
+    background: var(--violet, #8b7df7);
+    padding: 2px 8px;
+    border-radius: 999px;
+    box-shadow: 0 0 12px -2px var(--violet, #8b7df7);
+  }
+  .cw-mode-card { position: relative; }
+  .cw-mode-card.cw-mode-disabled { opacity: 0.5; cursor: not-allowed; }
+  .cw-mode-kicker {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: hsl(var(--hue) 68% 55%);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cw-mode-label { font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+  .cw-mode-desc {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    padding-left: 10px;
+    border-left: 2px solid color-mix(in srgb, hsl(var(--hue) 68% 55%) 25%, transparent);
+  }
+  .cw-mode-meta {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-text-subtle);
+  }
+  .cw-mode-meta b { color: var(--color-text-muted); font-weight: 600; }
+  .cw-badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    padding: 1px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .cw-badge-current { background: color-mix(in srgb, var(--color-done) 18%, transparent); color: var(--color-done); }
+  .cw-badge-soon    { background: color-mix(in srgb, var(--color-priority-medium) 18%, transparent); color: var(--color-priority-medium); }
+
+  /* ── form inputs ──────────────────────────────────────────────────── */
+  /* VF-326 graduate 2026-04-28: dashed bottom-border per row gives visual
+     rhythm between fullchain / privkey / passphrase fields (mockup feedback #4). */
+  .cw-row {
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--color-border);
+  }
+  .cw-row:first-child { padding-top: 0; }
+  .cw-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .cw-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+  }
+  /* VF-326 polish: explicit dark BG + light text — the prior var(--color-bg, #fff)
+     fallback rendered white BG with low-contrast text in the dark portal context. */
+  .cw-input, .cw-textarea {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text, #f3f4f6);
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+  }
+  .cw-input::placeholder, .cw-textarea::placeholder { color: var(--color-text-muted, #94a3b8); }
+  .cw-textarea { min-height: 110px; resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+  .cw-input:focus, .cw-textarea:focus {
+    outline: none;
+    border-color: hsl(var(--hue) 68% 55%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, hsl(var(--hue) 68% 55%) 25%, transparent);
+  }
+  .cw-file {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+  .cw-hint { color: var(--color-text-subtle); font-size: 0.7rem; margin-top: 4px; }
+
+  /* ── validation rows ──────────────────────────────────────────────── */
+  .cw-val-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px;
+    border-bottom: 1px dashed var(--color-border);
+    font-size: 0.8rem;
+  }
+  .cw-val-row:last-child { border-bottom: none; }
+  .cw-val-text { flex: 1; }
+  .cw-val-detail {
+    color: var(--color-text-subtle);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    margin-left: auto;
+    padding-left: 12px;
+  }
+  .cw-loading {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    padding: 12px 0;
+  }
+
+  /* ── swap progress (VF-326 graduate 2026-04-28: row-based ceremony
+     matching CERT-WIZARD-VISUAL-TIDY-MOCKUP.html stage 6) ─────────────── */
+  .cw-swap-step {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--color-border-soft, var(--color-border));
+  }
+  .cw-swap-step:last-child { border-bottom: none; }
+  .cw-swap-icon {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--color-surface-alt, var(--color-surface-sub));
+    border: 1px solid var(--color-border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--color-text-dim, var(--color-text-muted));
+    flex-shrink: 0;
+  }
+  .cw-swap-text { color: var(--color-text); }
+  .cw-swap-step.pending .cw-swap-text { color: var(--color-text-dim, var(--color-text-muted)); }
+  .cw-swap-step.done .cw-swap-icon {
+    background: var(--color-done); border-color: var(--color-done);
+    color: #051a0c; font-weight: 700;
+  }
+  .cw-swap-step.running .cw-swap-icon {
+    background: hsl(var(--hue) 68% 55%); border-color: hsl(var(--hue) 68% 55%);
+    color: #fff;
+    animation: cwSwapPulse 1s ease-in-out infinite;
+  }
+  .cw-swap-step.failed .cw-swap-icon {
+    background: var(--color-priority-high); border-color: var(--color-priority-high);
+    color: #fff; font-weight: 700;
+  }
+  .cw-swap-step.failed .cw-swap-text { color: var(--color-priority-high); }
+  @keyframes cwSwapPulse { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }
+
+  /* ── outcome (VF-326 graduate 2026-04-28: green-tick treatment matches the
+     ap-dot.green visual language; failure variant keeps red-glyph hero) ─── */
+  .cw-outcome-hero { text-align: center; padding: 30px 20px 16px; }
+  .cw-outcome-icon { font-size: 42px; line-height: 1; margin-bottom: 10px; }
+  .cw-outcome-hero.failure .cw-outcome-icon { color: var(--color-priority-high); }
+  .cw-outcome-tick {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 76px; height: 76px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--green, #4fd18b) 18%, transparent);
+    border: 2px solid var(--green, #4fd18b);
+    color: var(--green, #4fd18b);
+    font-size: 2.4rem; font-weight: 700;
+    margin-bottom: 14px;
+    box-shadow: 0 0 28px color-mix(in srgb, var(--green, #4fd18b) 30%, transparent);
+  }
+  .cw-outcome-hero h2 { margin: 0 0 6px; font-size: 1.35rem; }
+  .cw-outcome-hero p  { color: var(--color-text-muted); margin: 0; }
+
+  /* ── Stage 2 section titles (VF-326 graduate: split RC-ready vs POST RC/1.0) ── */
+  .cw-mode-section-title {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 18px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--color-border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .cw-mode-section-title:first-child { margin-top: 0; }
+  .cw-mode-card-num {
+    display: inline-block;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: color-mix(in srgb, hsl(var(--hue) 68% 55%) 18%, transparent);
+    color: hsl(var(--hue) 68% 55%);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-align: center;
+    line-height: 18px;
+    margin-right: 8px;
+    font-weight: 700;
+  }
+  .cw-mode-disabled .cw-mode-card-num {
+    background: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+    color: var(--color-text-muted);
+  }
+
+  /* ── footer buttons (VF-326 graduate 2026-04-28: outlined contained bar
+     instead of stranded float-row; matches the panel design language) ─── */
+  .cw-footer {
+    margin-top: var(--space-5);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 22px;
+    background: var(--color-surface, var(--bg-panel, #14151b));
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+  }
+  .cw-btn {
+    padding: 9px 16px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all var(--transition-fast);
+  }
+  .cw-btn:hover:not(:disabled) { border-color: hsl(var(--hue) 68% 55%); color: hsl(var(--hue) 68% 55%); }
+  .cw-btn.primary {
+    background: hsl(var(--hue) 68% 55%);
+    border-color: hsl(var(--hue) 68% 55%);
+    color: #fff;
+  }
+  .cw-btn.primary:hover:not(:disabled) {
+    background: hsl(var(--hue) 68% 48%);
+    color: #fff;
+    box-shadow: 0 2px 8px hsl(var(--hue) 68% 30% / 0.35);
+  }
+  .cw-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .cw-fileload { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .cw-btn-sm { padding: 4px 10px; font-size: 0.72rem; }
+  .cw-fileload-status { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-text-muted, #94a3b8); }
+  .cw-fileload-status.ok { color: hsl(140 60% 55%); }
+  .cw-fileload-status.err { color: hsl(0 70% 60%); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+    background: var(--color-surface-sub);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--color-border);
+  }
+</style>
+
+<script>
+(function() {
+  /* ── stage machine ─────────────────────────────────────────────────── */
+  const STAGES = [
+    { id: 'current', name: 'Current' },
+    { id: 'pick',    name: 'Target mode' },
+    { id: 'form',    name: 'Provide' },
+    { id: 'preview', name: 'Validate' },
+    { id: 'confirm', name: 'Confirm' },
+    { id: 'swap',    name: 'Swapping' },
+    { id: 'outcome', name: 'Outcome' },
+  ];
+  const MODE_LABEL = {
+    caddy_internal: "Caddy Internal CA",
+    acme: "Let's Encrypt (ACME)",
+    file: "Paste PEM + KEY",
+    pfx: "Upload PFX",
+    self_signed: "Self-signed (wizard-mint)",
+  };
+  const MODE_KICKER = {
+    caddy_internal: "caddy internal",
+    acme: "acme",
+    file: "pem + key",
+    pfx: "pfx upload",
+    self_signed: "self-signed mint",
+  };
+  const CURRENT_MODE = {{ current_cert.mode | default("'unknown'") | tojson }};
+
+  let state = {
+    stage: 'current',
+    selectedTarget: null,
+    validationRows: null,
+    formValid: true,  // VF-326: in-page hostname validation gates the form-stage Continue button
+  };
+
+  /* VF-326 file loader. Reads a PEM/Key file from disk into the matching
+     textarea with basic bullet-proofing: BOM strip, CRLF normalize, trim,
+     no-PEM-block reject, 64KB cap. Server-side openssl normalize + validation
+     pipeline catches everything past these guards. */
+  window.cwLoadFromFile = function(fileInput, targetTextareaName) {
+    const f = fileInput.files && fileInput.files[0];
+    const statusEl = document.getElementById(fileInput.id + 'Status');
+    if (!statusEl) return;
+    const setStatus = (msg, kind) => {
+      statusEl.textContent = msg;
+      statusEl.className = 'cw-fileload-status' + (kind ? ' ' + kind : '');
+    };
+    if (!f) { setStatus('', ''); return; }
+    if (f.size > 64 * 1024) {
+      setStatus('File too large (' + (f.size/1024).toFixed(0) + 'KB > 64KB cap)', 'err');
+      fileInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      let text = String(e.target.result || '');
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);   // BOM
+      text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+      if (!text.includes('-----BEGIN ')) {
+        setStatus('No PEM block found in ' + f.name, 'err');
+        fileInput.value = '';
+        return;
+      }
+      const ta = document.querySelector('textarea[name="' + targetTextareaName + '"]');
+      if (ta) {
+        ta.value = text;
+        setStatus('Loaded ' + f.name + ' (' + (f.size/1024).toFixed(1) + 'KB)', 'ok');
+      }
+      fileInput.value = '';
+    };
+    reader.onerror = () => {
+      setStatus('Failed to read ' + f.name, 'err');
+      fileInput.value = '';
+    };
+    reader.readAsText(f);
+  };
+
+  /* VF-326 in-page hostname validation. Mirrors the server regex per mode so
+     the Validate/Continue button only enables when the operator's input would
+     pass the API gate — no more clicking 4 stages deep then hitting 422. */
+  window.cwValidateHost = function(input) {
+    const panel = input.closest('[data-form]');
+    const mode = panel ? panel.getAttribute('data-form') : '';
+    const value = (input.value || '').trim();
+    let regex, modeNote;
+    if (mode === 'caddy_internal') {
+      regex = /^[A-Za-z0-9._-]+$/;
+      modeNote = 'wildcards (*) not allowed for caddy_internal — Caddy mints per-hostname leaves';
+    } else if (mode === 'self_signed') {
+      regex = /^(\*\.)?[A-Za-z0-9._-]+$/;
+      modeNote = 'wildcard form *.example.com or plain hostname';
+    } else {
+      // file/PFX have no hostname input — formValid stays true.
+      state.formValid = true;
+      renderFooter();
+      return;
+    }
+    const lengthOk = value.length >= 1 && value.length <= 253;
+    const ok = lengthOk && regex.test(value);
+    state.formValid = ok;
+    const validityDiv = panel ? panel.querySelector('.cw-host-validity') : null;
+    if (validityDiv) {
+      if (ok) {
+        validityDiv.dataset.state = 'ok';
+        validityDiv.textContent = '✓ valid hostname';
+      } else {
+        validityDiv.dataset.state = 'bad';
+        let why;
+        if (!lengthOk) why = `length must be 1–253 chars (got ${value.length})`;
+        else if (mode === 'caddy_internal' && value.includes('*')) why = modeNote;
+        else why = `letters / digits / dots / hyphens / underscores only`;
+        validityDiv.textContent = `✗ ${why}`;
+      }
+    }
+    renderFooter();
+  };
+
+  function renderRail() {
+    const el = document.getElementById('cwRail');
+    const idx = STAGES.findIndex(s => s.id === state.stage);
+    el.innerHTML = STAGES.map((s, i) => {
+      let cls = 'cw-step';
+      if (i < idx) cls += ' done';
+      else if (i === idx) cls += ' active';
+      return `<div class="${cls}">${i+1}. ${s.name}</div>`;
+    }).join('');
+  }
+
+  function showStage(id) {
+    state.stage = id;
+    document.querySelectorAll('[data-stage]').forEach(el => {
+      if (el.getAttribute('data-stage') === id) el.removeAttribute('hidden');
+      else el.setAttribute('hidden', '');
+    });
+    renderRail();
+    renderFooter();
+  }
+
+  function renderFooter() {
+    const f = document.getElementById('cwFooter');
+    const s = state.stage;
+    if (s === 'current') {
+      // VF-328: tier-S gate on the wizard ENTRY button — elevation deliberate
+      // BEFORE walking the wizard, so the user only re-enters auth once.
+      f.innerHTML = `
+        <a class="cw-btn" href="/admin/portal/configuration/certificates">Cancel</a>
+        <button class="cw-btn primary" data-tier="S" data-action-name="Change TLS certificate configuration" onclick="cwGoPick()">Change cert configuration &rarr;</button>`;
+    } else if (s === 'pick') {
+      const dis = state.selectedTarget ? '' : 'disabled';
+      f.innerHTML = `
+        <button class="cw-btn" onclick="cwShow('current')">&larr; Back</button>
+        <button class="cw-btn primary" ${dis} onclick="cwGoForm()">Next &rarr;</button>`;
+    } else if (s === 'form') {
+      const dis = state.formValid === false ? 'disabled title="Fix hostname error first"' : '';
+      f.innerHTML = `
+        <button class="cw-btn" onclick="cwShow('pick')">&larr; Back</button>
+        <button class="cw-btn primary" ${dis} onclick="cwValidate()">Validate &rarr;</button>`;
+    } else if (s === 'preview') {
+      const hasRed = (state.validationRows || []).some(r => r.status === 'red');
+      const dis = hasRed ? 'disabled title="Fix red rows first"' : '';
+      f.innerHTML = `
+        <button class="cw-btn" onclick="cwShow('form')">&larr; Back</button>
+        <button class="cw-btn primary" ${dis} onclick="cwGoConfirm()">Continue &rarr;</button>`;
+    } else if (s === 'confirm') {
+      // VF-328: defense-in-depth tier-S gate on the actual swap. Normally the
+      // entry gate covers this; if SA session expired mid-wizard the popup
+      // re-fires here instead of a raw 403 from the API.
+      f.innerHTML = `
+        <button class="cw-btn" onclick="cwShow('preview')">&larr; Back</button>
+        <button class="cw-btn primary" data-tier="S" data-action-name="Swap TLS certificate" onclick="cwSwap()">Swap now</button>`;
+    } else if (s === 'swap') {
+      f.innerHTML = `<button class="cw-btn" disabled>Swapping...</button>`;
+    } else if (s === 'outcome') {
+      f.innerHTML = `
+        <a class="cw-btn" href="/admin/portal/configuration/certificates/change-cert">Change something else</a>
+        <a class="cw-btn primary" href="/admin/portal/configuration/certificates">Done &mdash; return to Certificates</a>`;
+    }
+  }
+
+  /* ── pick stage ────────────────────────────────────────────────────── */
+  window.cwSelectTarget = function(t) {
+    state.selectedTarget = t;
+    document.querySelectorAll('.cw-mode-card').forEach(c => {
+      c.classList.toggle('selected', c.getAttribute('data-target') === t);
+    });
+    renderFooter();
+  };
+
+  window.cwGoPick = function() { showStage('pick'); };
+
+  /* ── form stage ────────────────────────────────────────────────────── */
+  window.cwGoForm = function() {
+    const t = state.selectedTarget;
+    // Map pfx + file onto the same backend mode but different form panes.
+    document.getElementById('cwTargetMode').value = (t === 'pfx') ? 'file' : t;
+    document.querySelectorAll('[data-form]').forEach(el => {
+      el.hidden = el.getAttribute('data-form') !== t;
+    });
+    document.getElementById('cwFormKicker').textContent = MODE_KICKER[t] || t;
+    document.getElementById('cwFormTitle').textContent = MODE_LABEL[t] || t;
+    document.getElementById('cwFormSubtitle').textContent = 'Supply the inputs for the target mode, then click Validate.';
+    showStage('form');
+    // VF-326: validate any pre-filled hostname in the now-visible panel so the
+    // footer gates correctly on entry (initial pre-fill is usually valid; if
+    // operator landed here from a prior cycle with a bad value, it's caught now).
+    const visiblePanel = document.querySelector(`[data-form="${t}"]:not([hidden])`);
+    const hostInput = visiblePanel ? visiblePanel.querySelector('input[name="hostname"]') : null;
+    if (hostInput) cwValidateHost(hostInput);
+    else { state.formValid = true; renderFooter(); }
+  };
+
+  /* ── validation ────────────────────────────────────────────────────── */
+  function collectFormData() {
+    const fd = new FormData();
+    const t = state.selectedTarget;
+    const backendMode = (t === 'pfx') ? 'file' : t;
+    fd.append('target_mode', backendMode);
+    const form = document.getElementById('cwForm');
+    const visiblePanel = form.querySelector(`[data-form="${t}"]`);
+    if (!visiblePanel) return fd;
+    visiblePanel.querySelectorAll('input, textarea').forEach(inp => {
+      const name = inp.getAttribute('name');
+      if (!name) return;
+      if (inp.type === 'file' && inp.files && inp.files[0]) {
+        fd.append(name, inp.files[0]);
+      } else if (name === 'fullchain_text' && inp.value.trim()) {
+        fd.append('fullchain_pem', new Blob([inp.value], {type:'application/x-pem-file'}), 'fullchain.pem');
+      } else if (name === 'privkey_text' && inp.value.trim()) {
+        fd.append('privkey_pem', new Blob([inp.value], {type:'application/x-pem-file'}), 'privkey.pem');
+      } else if (inp.value) {
+        fd.append(name, inp.value);
+      }
+    });
+    return fd;
+  }
+
+  /* VF-326 Bug 2: gate Stage 3 -> Stage 4 transition on validation result.
+     Old behaviour: transitioned to Stage 4 immediately, then rendered red rows
+     there if validation failed (operator clicked through 4 stages then learned
+     PFX password was wrong). New: stay on Stage 3, surface the failure inline,
+     only transition once validation passes. */
+  window.cwValidate = async function() {
+    state.validationRows = null;
+    const errEl = document.getElementById('cwFormErrors');
+    errEl.hidden = true;
+    errEl.innerHTML = '';
+    // Inline "validating..." badge near the Validate button so operator gets
+    // immediate feedback without leaving Stage 3.
+    const footer = document.getElementById('cwFooter');
+    const origFooter = footer ? footer.innerHTML : '';
+    if (footer) footer.innerHTML = `<button class="cw-btn">&larr; Back</button><button class="cw-btn primary" disabled>Validating...</button>`;
+    let data, status;
+    try {
+      const fd = collectFormData();
+      const r = await fetch('/api/v2/proxy/cert/validate', { method: 'POST', body: fd });
+      status = r.status;
+      data = await r.json();
+    } catch (e) {
+      errEl.innerHTML = `<div class="cw-form-errors-title">Validation request failed</div><div class="cw-form-errors-body">${escapeHtml(String(e))}</div>`;
+      errEl.hidden = false;
+      renderFooter();
+      return;
+    }
+    // FastAPI 4xx returns {detail: ...}; success returns {rows: [...]}.
+    if (status >= 400 || !Array.isArray(data.rows)) {
+      const msg = (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data));
+      errEl.innerHTML = `<div class="cw-form-errors-title">Validation rejected (HTTP ${status})</div><div class="cw-form-errors-body">${escapeHtml(msg)}</div>`;
+      errEl.hidden = false;
+      renderFooter();
+      return;
+    }
+    const rows = data.rows;
+    const reds = rows.filter(r => r.status === 'red');
+    if (reds.length) {
+      const items = reds.map(r => `<li><b>${escapeHtml(r.text)}</b>${r.detail ? ' — ' + escapeHtml(r.detail) : ''}</li>`).join('');
+      errEl.innerHTML = `<div class="cw-form-errors-title">Fix these before continuing</div><ul class="cw-form-errors-body">${items}</ul>`;
+      errEl.hidden = false;
+      renderFooter();
+      return;
+    }
+    // All clear — store rows, advance to Stage 4 (preview), render rows there.
+    state.validationRows = rows;
+    showStage('preview');
+    const rowsEl = document.getElementById('cwValidationRows');
+    document.getElementById('cwPreviewTitle').textContent = `Preview of ${MODE_LABEL[state.selectedTarget] || state.selectedTarget}`;
+    renderValidationRows(rows);
+    renderFooter();
+  };
+
+  function renderValidationRows(rows) {
+    const el = document.getElementById('cwValidationRows');
+    if (!rows || !rows.length) {
+      el.innerHTML = '<div class="cw-loading">No rows returned.</div>';
+      return;
+    }
+    el.innerHTML = rows.map(r => `
+      <div class="cw-val-row">
+        <span class="ap-dot ${r.status}"></span>
+        <span class="cw-val-text">${escapeHtml(r.text)}</span>
+        <span class="cw-val-detail">${escapeHtml(r.detail || '')}</span>
+      </div>`).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  /* ── confirm stage ─────────────────────────────────────────────────── */
+  window.cwGoConfirm = function() {
+    document.getElementById('cwConfFrom').textContent = CURRENT_MODE;
+    document.getElementById('cwConfTo').textContent = MODE_LABEL[state.selectedTarget] || state.selectedTarget;
+    showStage('confirm');
+  };
+
+  /* ── swap stage ────────────────────────────────────────────────────── */
+  /* VF-326 ceremony graduate (2026-04-28): 6-step paced ceremony — backend
+     completes in <1s, but the UI walks through ~5s of steps for confidence.
+     The API call races the ceremony; on success we wait for the ceremony to
+     also finish, on failure we abort the ceremony at the current step. */
+  const CW_SWAP_STEPS = ['backup', 'write', 'render', 'reload', 'handshake', 'hash'];
+  const CW_SWAP_STEP_MS = 750;
+
+  function setSwapStep(name, status) {
+    const el = document.querySelector(`.cw-swap-step[data-step="${name}"]`);
+    if (!el) return;
+    el.classList.remove('pending', 'running', 'done', 'failed');
+    if (status) el.classList.add(status);
+    const icon = el.querySelector('.cw-swap-icon');
+    if (!icon) return;
+    if (status === 'done') icon.textContent = '✓';
+    else if (status === 'running') icon.textContent = '●';
+    else if (status === 'failed') icon.textContent = '✕';
+    else icon.textContent = String(CW_SWAP_STEPS.indexOf(name) + 1);
+  }
+
+  function resetSwapSteps() {
+    CW_SWAP_STEPS.forEach(s => setSwapStep(s, 'pending'));
+  }
+
+  /* Walks the steps at fixed pace. Bails out cleanly if abortRef.aborted
+     flips true (set by the API path on failure). Resolves when either the
+     ceremony completes OR is aborted. */
+  async function runSwapCeremony(abortRef) {
+    for (let i = 0; i < CW_SWAP_STEPS.length; i++) {
+      if (abortRef.aborted) return;
+      setSwapStep(CW_SWAP_STEPS[i], 'running');
+      await sleep(CW_SWAP_STEP_MS);
+      if (abortRef.aborted) {
+        // Mark the in-flight step as failed and stop.
+        setSwapStep(CW_SWAP_STEPS[i], 'failed');
+        return;
+      }
+      setSwapStep(CW_SWAP_STEPS[i], 'done');
+    }
+  }
+
+  window.cwSwap = async function() {
+    showStage('swap');
+    resetSwapSteps();
+    const abortRef = { aborted: false };
+    const ceremony = runSwapCeremony(abortRef);
+
+    const t = state.selectedTarget;
+    try {
+      let r, data;
+      if (t === 'caddy_internal') {
+        const ciHost = (document.querySelector('[data-form="caddy_internal"] input[name="hostname"]')?.value || '').trim();
+        r = await fetch('/api/v2/proxy/mode/switch', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ target_mode: 'caddy_internal', hostname: ciHost }),
+        });
+        data = await r.json();
+      } else {
+        r = await fetch('/api/v2/proxy/cert/swap', { method: 'POST', body: collectFormData() });
+        data = await r.json();
+      }
+
+      if (!r.ok) {
+        abortRef.aborted = true;
+        await ceremony;
+        const detail = data.detail || data;
+        return cwShowFailure(detail, r.status);
+      }
+
+      // API succeeded — let the ceremony finish so the user sees all 6 ticks.
+      await ceremony;
+      cwShowSuccess(data);
+    } catch (e) {
+      abortRef.aborted = true;
+      await ceremony;
+      cwShowFailure({ detail: String(e) }, 0);
+    }
+  };
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function cwShowSuccess(data) {
+    const el = document.getElementById('cwOutcome');
+    const fp = (data.fingerprint_sha256 || '').slice(0, 16);
+    el.innerHTML = `
+      <div class="cw-outcome-hero success">
+        <div class="cw-outcome-tick">&#x2713;</div>
+        <h2>Cert swapped &mdash; service restored</h2>
+        <p>${escapeHtml(data.probe || 'TLS handshake succeeded.')} New cert is live.</p>
+      </div>
+      <div class="ap-panel violet-edge">
+        <div class="ap-panel-title">// NEW CERT (LIVE)</div>
+        <div class="ap-drow"><div class="ap-drow-k">Target mode</div><div class="ap-drow-v">${escapeHtml(MODE_LABEL[state.selectedTarget] || data.target_mode || '')}</div></div>
+        ${data.backup ? `<div class="ap-drow"><div class="ap-drow-k">Backup</div><div class="ap-drow-v"><code>${escapeHtml(data.backup)}</code></div></div>` : ''}
+        ${fp ? `<div class="ap-drow"><div class="ap-drow-k">SHA-256</div><div class="ap-drow-v"><code>${fp}...</code></div></div>` : ''}
+        ${data.caddyfile_backup ? `<div class="ap-drow"><div class="ap-drow-k">Caddyfile backup</div><div class="ap-drow-v"><code>${escapeHtml(data.caddyfile_backup)}</code></div></div>` : ''}
+      </div>
+      <div class="ap-callout violet">
+        <b>Next:</b> if the new mode has a downloadable CA bundle, remind project users to install it via <code>Settings &rarr; Certificate &rarr; Download CA bundle</code>.
+      </div>`;
+    showStage('outcome');
+  }
+
+  /* VF-326 outcome rewrite: classify failure mode by HTTP status + actual response shape.
+     Five distinct outcomes:
+       - 401/403  → SA session expired or insufficient privilege (re-elevate, no swap attempted)
+       - 422 with rows  → validation rejected the upload (no swap attempted)
+       - 422 with detail.rollback === 'ok'  → swap attempted, probe failed, rolled back
+       - 422 with detail.rollback === 'failed'  → swap AND rollback both failed (manual recovery)
+       - everything else  → generic server error (fall-through with whatever detail came back)
+     Reads data.detail (FastAPI default) AND data.error / data.rollback (legacy /cert/swap shape).
+  */
+  function cwShowFailure(detail, status) {
+    const el = document.getElementById('cwOutcome');
+    // Pull error text from the most-likely sources, in order.
+    const errText = (typeof detail === 'string' ? detail
+                    : detail.error
+                      || (typeof detail.detail === 'string' ? detail.detail : null)
+                      || (detail.detail && detail.detail.error)
+                      || 'Unknown error.');
+    const rollbackState = detail.rollback || (detail.detail && detail.detail.rollback) || null;
+    const backupPath = detail.backup || (detail.detail && detail.detail.backup) || null;
+    const rowsArr = Array.isArray(detail.rows) ? detail.rows
+                  : (detail.detail && Array.isArray(detail.detail.rows) ? detail.detail.rows : null);
+
+    let icon, title, subtitle, recoveryHtml = '';
+
+    if (status === 401 || status === 403) {
+      icon = '&#x1F512;'; // padlock
+      title = 'Session expired or insufficient privilege';
+      subtitle = 'Your SA elevation has timed out, or you are not authenticated as Super Admin. The swap was NOT attempted; the original cert is intact.';
+      recoveryHtml = `
+        <div class="ap-callout violet">
+          <b>Re-elevate:</b> close this wizard and re-authenticate as SA from the portal topbar, then return to <code>/admin/portal/configuration/certificates/change-cert</code>.
+        </div>`;
+    } else if (status === 422 && rowsArr && rowsArr.length) {
+      icon = '&#x26A0;'; // warning
+      title = 'Validation rejected the swap';
+      subtitle = 'The proposed cert failed one or more safety checks. The swap was NOT attempted; the original cert is intact.';
+    } else if (status === 422 && rollbackState === 'ok') {
+      icon = '&#x2717;'; // cross
+      title = 'Swap failed &mdash; previous cert restored';
+      subtitle = 'TLS handshake probe failed after the swap. Rollback completed automatically; service is running on the original cert.';
+    } else if (status === 422 && rollbackState === 'failed') {
+      icon = '&#x26A0;'; // warning
+      title = 'Swap failed AND rollback failed';
+      subtitle = 'The new cert was rejected AND restoration from backup failed. Manual intervention required.';
+      recoveryHtml = `
+        <div class="ap-callout amber">
+          <b>Recovery:</b>
+          <ol>
+            <li>SSH to the host.</li>
+            <li><code>cd /opt/vibeforge/ops/certs</code></li>
+            <li>Restore the most recent backup dir.</li>
+            <li><code>docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile</code></li>
+          </ol>
+        </div>`;
+    } else {
+      icon = '&#x2717;';
+      title = 'Swap failed';
+      subtitle = 'The server returned an error before the swap completed. The original cert should be intact.';
+    }
+
+    let rowsHtml = '';
+    if (rowsArr && rowsArr.length) {
+      rowsHtml = rowsArr.map(r => `
+        <div class="cw-val-row">
+          <span class="ap-dot ${r.status}"></span>
+          <span class="cw-val-text">${escapeHtml(r.text)}</span>
+          <span class="cw-val-detail">${escapeHtml(r.detail || '')}</span>
+        </div>`).join('');
+    }
+
+    el.innerHTML = `
+      <div class="cw-outcome-hero failure">
+        <div class="cw-outcome-icon">${icon}</div>
+        <h2>${title}</h2>
+        <p>${escapeHtml(subtitle)}</p>
+      </div>
+      ${rowsHtml ? `<div class="ap-panel"><div class="ap-panel-title">// VALIDATION</div>${rowsHtml}</div>` : ''}
+      <div class="ap-panel">
+        <div class="ap-panel-title">// FAILURE DETAIL</div>
+        ${status ? `<div class="ap-drow"><div class="ap-drow-k">HTTP status</div><div class="ap-drow-v">${escapeHtml(String(status))}</div></div>` : ''}
+        <div class="ap-drow"><div class="ap-drow-k">Error</div><div class="ap-drow-v">${escapeHtml(errText)}</div></div>
+        ${rollbackState ? `<div class="ap-drow"><div class="ap-drow-k">Rollback</div><div class="ap-drow-v">${escapeHtml(rollbackState)}</div></div>` : ''}
+        ${backupPath ? `<div class="ap-drow"><div class="ap-drow-k">Backup kept at</div><div class="ap-drow-v"><code>${escapeHtml(backupPath)}</code></div></div>` : ''}
+      </div>
+      ${recoveryHtml}`;
+    showStage('outcome');
+  }
+
+  /* ── helpers exposed to inline handlers ───────────────────────────── */
+  window.cwShow = showStage;
+
+  /* ── boot ──────────────────────────────────────────────────────────── */
+  showStage('current');
+})();
+</script>
+{% endblock %}

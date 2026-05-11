@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Admin - VibeForge+{% endblock %}</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+{% if use_htmx is not defined or use_htmx %}
+<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+{% endif %}
+<style>
+  /* VF-327 — Escalated Admin Portal shell.
+     Standalone layout (does NOT extend Board base.html). Deliberate red accent
+     at the topbar edge signals "danger zone"; navigation itself stays violet
+     so red keeps its meaning. Board-parity paradigm: left sidebar with primes
+     + sub-items, workspace pane changes by context. */
+  :root {
+    --bg: #0b0c10;
+    --bg-panel: #14151b;
+    --bg-panel-2: #1a1c24;
+    --bg-panel-3: #20222c;
+    --border: #2a2c36;
+    --border-strong: #383a46;
+    --text: #e6e6ed;
+    --text-muted: #8d8f9b;
+    --text-dim: #5e606b;
+    --violet: #8b7df7;
+    --violet-2: #a89af9;
+    --violet-glow: rgba(139, 125, 247, 0.18);
+    /* VF-328: dialled the admin-portal red back from #e86a6a/#f27d7d to a
+       slightly darker, less saturated shade. Still clearly red (danger-zone
+       semantic preserved) but doesn't shout the moment the page renders. */
+    --red: #c95757;
+    --red-2: #d76b6b;
+    --red-glow: rgba(201, 87, 87, 0.22);
+    --amber: #e8b84a;
+    --green: #4fd18b;
+    --radius: 6px;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    --sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+    /* VF-326 graduate 2026-04-28: compatibility aliases for templates that
+       use the older --color-* / --hue / --space-* vocabulary (e.g. the cert
+       wizard, ported from the Board base.html design system). Without these,
+       102 var(--color-*) refs in admin_portal_change_cert.html silently fall
+       back to CSS initial values — invisible active states, missing borders. */
+    --hue: 264;                                /* matches --violet #8b7df7 */
+    --color-bg: var(--bg);
+    --color-surface: var(--bg-panel);
+    --color-surface-sub: var(--bg-panel-2);
+    --color-surface-alt: var(--bg-panel-2);
+    --color-text: var(--text);
+    --color-text-muted: var(--text-muted);
+    --color-text-subtle: var(--text-dim);
+    --color-text-dim: var(--text-dim);
+    --color-border: var(--border);
+    --color-border-soft: var(--border);
+    --color-priority-high: var(--red);
+    --color-priority-medium: var(--amber);
+    --color-done: var(--green);
+    --font-mono: var(--mono);
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --transition-fast: 0.15s ease;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; }
+  a { color: var(--violet-2); }
+
+  /* ── Topbar ──────────────────────────────────────────────── */
+  .ap-topbar {
+    background: linear-gradient(90deg, #1a1019 0%, #0f1019 50%, #1a1014 100%);
+    border-bottom: 1px solid var(--border-strong);
+    padding: 12px 22px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 1px 0 var(--red-glow);
+  }
+  .ap-title { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+  .ap-title .red-accent { color: var(--red-2); }
+  .ap-title .dim { color: var(--text-muted); font-weight: 400; }
+  /* Build label — release-branch identifier (or alembic head fallback). */
+  .ap-build-label {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 500;
+    color: var(--text-muted); opacity: 0.6;
+    letter-spacing: 0.06em; padding: 0 0 0 4px;
+    user-select: text;
+  }
+  /* Release-branch builds get the orange pulse — quiet but visible reminder
+     that you're on a pre-release. Master / dev builds stay in the quiet
+     default above. */
+  .ap-build-label.is-release {
+    color: hsl(28 95% 65%);
+    opacity: 1;
+    padding: 2px 8px;
+    margin-left: 4px;
+    border-radius: 3px;
+    background: hsl(28 95% 55% / 0.10);
+    border: 1px solid hsl(28 95% 55% / 0.45);
+    animation: ap-build-label-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes ap-build-label-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(28 95% 55% / 0.0); }
+    50%      { box-shadow: 0 0 0 4px hsl(28 95% 55% / 0.30); }
+  }
+  .ap-pill-sa {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    padding: 3px 10px; border-radius: 10px;
+    background: var(--red); color: #fff;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  /* VF-328: state-aware pill styling. Three mutually exclusive cases.
+     Pulse hierarchy: SU = mild green (routine), Stacked = strong red+amber
+     (you have SA power), Break-glass = strongest red+glow (you ARE SA, no
+     human identity behind you). Each tier signals its weight. */
+  .ap-pill-su {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    padding: 3px 10px; border-radius: 10px;
+    background: rgba(79,209,139,0.16);
+    color: var(--green);
+    border: 1px solid rgba(79,209,139,0.45);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    animation: ap-su-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes ap-su-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(79,209,139,0.0); }
+    50%      { box-shadow: 0 0 0 4px rgba(79,209,139,0.30); }
+  }
+  .ap-pill-stacked-pulse {
+    background: linear-gradient(90deg, var(--red), var(--red-2), var(--red));
+    background-size: 200% 100%;
+    animation:
+      ap-sa-pulse 2s ease-in-out infinite,
+      ap-sa-shimmer 4s linear infinite;
+  }
+  .ap-pill-break-glass {
+    background: linear-gradient(90deg, var(--red-2), var(--red), var(--red-2));
+    background-size: 200% 100%;
+    color: #fff;
+    box-shadow: 0 0 0 2px rgba(201,87,87,0.35), 0 0 14px 2px rgba(201,87,87,0.45);
+    animation:
+      ap-sa-pulse-strong 0.9s ease-in-out infinite,
+      ap-sa-shimmer 2s linear infinite;
+  }
+  @keyframes ap-sa-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(201,87,87,0.0); }
+    50%      { box-shadow: 0 0 0 4px rgba(201,87,87,0.42); }
+  }
+  @keyframes ap-sa-pulse-strong {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(201,87,87,0.35), 0 0 14px 2px rgba(201,87,87,0.45); }
+    50%      { box-shadow: 0 0 0 7px rgba(201,87,87,0.65), 0 0 22px 6px rgba(201,87,87,0.65); }
+  }
+  @keyframes ap-sa-shimmer {
+    0%   { background-position:   0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+  /* Pure break-glass top strip — unmissable. */
+  .ap-break-glass-strip {
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--red), var(--red-2), var(--red), transparent);
+    animation: ap-strip-pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes ap-strip-pulse {
+    0%, 100% { opacity: 0.65; }
+    50%      { opacity: 1; }
+  }
+  .ap-back-to-board.disabled,
+  .ap-back-to-board[aria-disabled="true"] {
+    pointer-events: none; opacity: 0.4; cursor: not-allowed;
+    background: var(--bg-panel-2); border-color: var(--border);
+  }
+
+  /* VF-328: SA Sign-out affordance — ghost-styled to sit beside Back-to-Board
+     without competing visually. Hits /admin/logout which clears SA cookie +
+     SU elevation. Pure break-glass: hits the same endpoint, full board logout. */
+  .ap-signout {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    color: var(--text-muted); text-decoration: none;
+    padding: 7px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: all 0.15s;
+  }
+  .ap-signout:hover {
+    color: var(--red-2); border-color: var(--red);
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+  }
+
+  /* VF-328: tier-S locked button affordance — visible "needs SA" state.
+     Flat SVG padlock + white-on-red "SA" badge. SVG is used instead of the
+     emoji 🔒 because emoji glyphs ignore CSS colour and render with the OS
+     emoji palette (washed out on red backgrounds). */
+  [data-tier="S"].vf-ts-locked {
+    position: relative;
+    cursor: pointer; /* still clickable — opens the popup */
+  }
+  [data-tier="S"].vf-ts-locked::after {
+    content: 'SA';
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 7px 2px 21px;
+    font-family: var(--mono);
+    font-size: 0.7em;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    background:
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 16'%3E%3Cpath d='M4.2 8V5.2a2.8 2.8 0 0 1 5.6 0V8' fill='none' stroke='%23c95757' stroke-width='1.6' stroke-linecap='round'/%3E%3Crect x='2.4' y='7.8' width='9.2' height='6.6' rx='1.2' fill='%23c95757'/%3E%3Ccircle cx='7' cy='10.6' r='0.85' fill='%23fff'/%3E%3C/svg%3E") no-repeat 5px 50% / 11px 12px,
+      #fff;
+    color: var(--red);
+    border-radius: 3px;
+    vertical-align: middle;
+    box-shadow: 0 0 0 1px rgba(201,87,87,0.55), 0 0 6px rgba(201,87,87,0.35);
+  }
+  [data-tier="S"].vf-ts-locked:hover::after {
+    box-shadow: 0 0 0 1px var(--red), 0 0 8px rgba(201,87,87,0.6);
+  }
+
+  /* VF-328: confirm popup — red-themed to convey tier-S crossing.
+     Kept calmer than Windows UAC (no all-caps shouting), but deliberately
+     not violet — violet is for routine portal nav, red is the right semantic
+     for "you are about to enter system-config territory". */
+  .vf-ts-overlay {
+    position: fixed; inset: 0; background: rgba(5,7,12,0.72);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10500; padding: 1rem;
+  }
+  .vf-ts-overlay[hidden] { display: none; }
+  .vf-ts-card {
+    background: var(--bg-panel); border: 1px solid var(--red);
+    border-radius: 8px; width: 100%; max-width: 460px;
+    box-shadow:
+      0 20px 60px rgba(0,0,0,0.65),
+      0 0 0 1px var(--red-glow),
+      0 0 30px -8px var(--red-glow);
+    overflow: hidden;
+    position: relative;
+  }
+  /* Pulsing red top strip mirrors the break-glass topbar — same visual language. */
+  .vf-ts-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, transparent, var(--red), var(--red-2), var(--red), transparent);
+    animation: ap-strip-pulse 2.5s ease-in-out infinite;
+  }
+  .vf-ts-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 18px 20px 12px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(201,87,87,0.10), transparent);
+  }
+  .vf-ts-shield { font-size: 18px; filter: drop-shadow(0 0 6px var(--red-glow)); }
+  .vf-ts-kicker {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    color: var(--red-2); text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .vf-ts-body { padding: 18px 20px 8px; }
+  .vf-ts-action {
+    font-weight: 700; font-size: 14px; color: var(--text);
+    margin-bottom: 10px; line-height: 1.4;
+  }
+  .vf-ts-line {
+    font-family: var(--sans); font-size: 12px; color: var(--text);
+    margin-bottom: 6px; line-height: 1.45;
+  }
+  .vf-ts-line.vf-ts-muted { color: var(--text-muted); }
+  .vf-ts-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 20px 16px;
+  }
+
+  /* VF-329: NavGuard dialog — fires when navigation would lose state.
+     Two visual variants: amber (dirty forms — discard) / red (unack reveals — louder). */
+  .vf-ng-overlay {
+    position: fixed; inset: 0; background: rgba(5,7,12,0.72);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10600; padding: 1rem;
+  }
+  .vf-ng-overlay[hidden] { display: none; }
+  .vf-ng-card {
+    background: var(--bg-panel); border: 1px solid var(--amber);
+    border-radius: 8px; width: 100%; max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(232,184,74,0.25);
+    overflow: hidden;
+  }
+  .vf-ng-card.vf-ng-reveal {
+    border-color: var(--red);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px var(--red-glow), 0 0 30px -8px var(--red-glow);
+  }
+  .vf-ng-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(232,184,74,0.10), transparent);
+  }
+  .vf-ng-card.vf-ng-reveal .vf-ng-header {
+    background: linear-gradient(90deg, rgba(201,87,87,0.10), transparent);
+  }
+  .vf-ng-icon { font-size: 18px; }
+  .vf-ng-kicker {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    color: var(--amber); text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .vf-ng-card.vf-ng-reveal .vf-ng-kicker { color: var(--red-2); }
+  .vf-ng-body { padding: 16px 20px 8px; }
+  .vf-ng-intro { font-size: 12px; color: var(--text); margin-bottom: 10px; }
+  .vf-ng-items {
+    list-style: none; padding-left: 0; margin: 0 0 10px 0;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+  }
+  .vf-ng-items li {
+    padding: 4px 0 4px 14px; position: relative; line-height: 1.5;
+  }
+  .vf-ng-items li::before {
+    content: '\25CF'; position: absolute; left: 0; color: var(--amber); font-size: 8px; top: 7px;
+  }
+  .vf-ng-card.vf-ng-reveal .vf-ng-items li::before { color: var(--red-2); }
+  .vf-ng-warn {
+    font-size: 11px; color: var(--text-muted); line-height: 1.5;
+    font-style: italic; padding-top: 8px; border-top: 1px dashed var(--border);
+    margin-top: 4px;
+  }
+  .vf-ng-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 20px 16px;
+  }
+
+  /* VF-329: themed confirm dialog — replaces browser confirm(). Promise-returning. */
+  .vf-cf-overlay {
+    position: fixed; inset: 0; background: rgba(5,7,12,0.72);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10550; padding: 1rem;
+  }
+  .vf-cf-overlay[hidden] { display: none; }
+  .vf-cf-card {
+    background: var(--bg-panel); border: 1px solid var(--border-strong);
+    border-radius: 8px; width: 100%; max-width: 460px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.65);
+    overflow: hidden;
+  }
+  .vf-cf-card.danger { border-color: var(--red); box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px var(--red-glow); }
+  .vf-cf-card.amber  { border-color: var(--amber); }
+  .vf-cf-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(139,125,247,0.08), transparent);
+  }
+  .vf-cf-card.danger .vf-cf-header { background: linear-gradient(90deg, rgba(201,87,87,0.10), transparent); }
+  .vf-cf-card.amber  .vf-cf-header { background: linear-gradient(90deg, rgba(232,184,74,0.10), transparent); }
+  .vf-cf-title {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    color: var(--violet-2); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .vf-cf-card.danger .vf-cf-title { color: var(--red-2); }
+  .vf-cf-card.amber  .vf-cf-title { color: var(--amber); }
+  .vf-cf-body {
+    padding: 16px 20px 8px; font-size: 13px;
+    color: var(--text); line-height: 1.5;
+  }
+  .vf-cf-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 20px 16px;
+  }
+
+  /* VF-329: RevealPanel — one-time-show value. Tightly coupled with NavGuard:
+     while a reveal is mounted and not acknowledged, NavGuard blocks navigation. */
+  .vf-rp-card {
+    background: var(--bg-panel-2); border: 1px solid var(--red);
+    border-radius: 6px; padding: 14px 18px; margin: 12px 0;
+    box-shadow: 0 0 0 1px var(--red-glow);
+  }
+  .vf-rp-card.vf-rp-acked {
+    border-color: var(--border); box-shadow: none; opacity: 0.55;
+  }
+  .vf-rp-kicker {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--red-2); text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .vf-rp-card.vf-rp-acked .vf-rp-kicker { color: var(--text-muted); }
+  .vf-rp-row {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 10px;
+  }
+  .vf-rp-value {
+    flex: 1; padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; font-family: var(--mono); font-size: 13px;
+    color: var(--text); user-select: all; word-break: break-all;
+  }
+  .vf-rp-value.vf-rp-redacted {
+    letter-spacing: 4px; color: var(--text-dim);
+  }
+  .vf-rp-warn {
+    font-size: 11px; color: var(--text-muted); margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .vf-rp-ack-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text); cursor: pointer;
+    padding: 6px 0;
+    user-select: none;
+  }
+  .vf-rp-ack-row input[type="checkbox"] {
+    width: 14px; height: 14px; cursor: pointer; accent-color: var(--violet);
+  }
+  .vf-rp-footer {
+    display: flex; justify-content: flex-end;
+    margin-top: 6px;
+  }
+
+  .ap-elev-meta { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+  .ap-elev-meta .count { color: var(--amber); }
+  .ap-topbar-actions { display: flex; gap: 14px; align-items: center; }
+  /* VF-327: Back-to-Board is deliberately prominent — violet solid button,
+     easy to find. The exit from the danger zone is as visible as the entry.
+     Not a muted ghost link. */
+  .ap-back-to-board {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: #fff; text-decoration: none;
+    padding: 8px 16px;
+    background: var(--violet); border: 1px solid var(--violet);
+    border-radius: 5px;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: all 0.15s;
+  }
+  .ap-back-to-board:hover {
+    background: var(--violet-2); border-color: var(--violet-2);
+    box-shadow: 0 0 0 2px var(--violet-glow), 0 2px 10px -2px var(--violet-glow);
+    transform: translateY(-1px);
+  }
+  .ap-back-to-board .arrow { font-size: 14px; line-height: 1; }
+
+  /* ── Shell grid ──────────────────────────────────────────── */
+  .ap-shell { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 56px); }
+
+  /* ── Sidebar ─────────────────────────────────────────────── */
+  .ap-sidebar {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    padding: 16px 8px;
+    overflow-y: auto;
+  }
+  .ap-sb-label {
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 10px 10px 6px; font-weight: 600;
+  }
+  .ap-sb-prime {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; border-radius: 4px;
+    cursor: pointer; color: var(--text);
+    font-weight: 600; font-size: 12px;
+    user-select: none;
+  }
+  .ap-sb-prime:hover { background: var(--bg-panel-2); }
+  .ap-sb-prime .caret { font-size: 9px; color: var(--text-dim); transition: transform 0.15s; }
+  .ap-sb-prime.expanded .caret { transform: rotate(90deg); }
+  .ap-sb-prime .icon { margin-right: 6px; opacity: 0.8; }
+  .ap-sb-subs { margin-bottom: 4px; }
+  .ap-sb-subs.collapsed { display: none; }
+  .ap-sb-sub {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 10px 5px 26px;
+    font-size: 12px; color: var(--text-muted);
+    cursor: pointer; text-decoration: none;
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+  }
+  .ap-sb-sub:hover:not(.locked) { background: var(--bg-panel-2); color: var(--text); }
+  .ap-sb-sub.active {
+    background: var(--violet-glow);
+    color: var(--violet-2);
+    border-left-color: var(--violet);
+  }
+  .ap-sb-sub.locked { color: var(--text-dim); }
+  .ap-sb-sub .lock { font-size: 10px; opacity: 0.6; margin-right: 3px; }
+  .ap-sb-badge {
+    font-family: var(--mono); font-size: 9px; padding: 1px 6px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .ap-sb-badge.dev  { background: rgba(232,184,74,0.15); color: var(--amber); }
+  .ap-sb-badge.live { background: rgba(79,209,139,0.12); color: var(--green); }
+
+  /* ── Workspace ───────────────────────────────────────────── */
+  .ap-workspace {
+    padding: 24px 32px;
+    max-width: 1080px;
+    overflow-y: auto;
+  }
+  .ap-crumb {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .ap-crumb span { color: var(--text-muted); }
+  .ap-ws-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .ap-ws-subtitle { color: var(--text-muted); margin-bottom: 24px; font-size: 13px; }
+
+  /* ── Panels ──────────────────────────────────────────────── */
+  .ap-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    margin-bottom: 16px;
+  }
+  .ap-panel-title {
+    font-family: var(--mono); font-size: 10px; color: var(--violet-2);
+    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+    margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .ap-panel.violet-edge {
+    border-left: 3px solid var(--violet);
+    box-shadow: 0 0 24px -10px var(--violet-glow);
+  }
+  .ap-panel.danger-edge {
+    border-left: 3px solid var(--red);
+    box-shadow: 0 0 24px -10px var(--red-glow);
+  }
+  .ap-panel.danger-edge .ap-panel-title { color: var(--red-2); }
+
+  /* ── POST RC/1.0 pill (small inline marker for deferred actions/modes) ─── */
+  .ap-rc-pill {
+    display: inline-block;
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    padding: 1px 7px; border-radius: 999px;
+    margin-left: 8px; letter-spacing: 0.05em; text-transform: uppercase;
+    background: color-mix(in srgb, var(--amber) 16%, transparent);
+    color: var(--amber);
+    border: 1px solid color-mix(in srgb, var(--amber) 50%, transparent);
+    vertical-align: 1px;
+  }
+
+  /* ── Status badge (graduated from VF-326 cert wizard tidy mockup 2026-04-28).
+     Sits on the right of an .ap-panel-title for at-a-glance health signal. */
+  .ap-status-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 10px;
+    padding: 3px 10px; border-radius: 999px;
+    background: color-mix(in srgb, var(--green) 14%, transparent);
+    border: 1px solid var(--green); color: var(--green);
+    text-transform: none; letter-spacing: 0.02em;
+  }
+  .ap-status-badge.amber { background: color-mix(in srgb, var(--amber) 14%, transparent); border-color: var(--amber); color: var(--amber); }
+  .ap-status-badge.red   { background: color-mix(in srgb, var(--red) 14%, transparent);   border-color: var(--red);   color: var(--red-2); }
+  .ap-status-badge .ap-status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+    animation: ap-heartbeat 3.2s ease-in-out infinite;
+  }
+  @keyframes ap-heartbeat { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }
+
+  /* ── Data rows (key/value) ───────────────────────────────── */
+  .ap-drow {
+    display: grid; grid-template-columns: 180px 1fr;
+    padding: 7px 0; border-bottom: 1px dashed var(--border);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .ap-drow:last-child { border-bottom: none; }
+  .ap-drow-k { color: var(--text-muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+  .ap-drow-v { color: var(--text); overflow-wrap: anywhere; }
+
+  .ap-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .ap-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .ap-dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .ap-dot.red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+  /* ── Buttons ─────────────────────────────────────────────── */
+  .ap-btn {
+    padding: 8px 14px; border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: transparent; color: var(--text);
+    font-family: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    transition: all 0.15s;
+  }
+  .ap-btn:hover:not(:disabled) { border-color: var(--violet); color: var(--violet-2); }
+  .ap-btn.primary { background: var(--violet); border-color: var(--violet); color: #fff; }
+  .ap-btn.primary:hover:not(:disabled) { background: var(--violet-2); border-color: var(--violet-2); color: #fff; }
+  .ap-btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .ap-btn.danger:hover:not(:disabled) {
+    background: var(--red-2); border-color: var(--red-2); color: #fff;
+    box-shadow: 0 0 16px -4px var(--red-glow);
+  }
+  .ap-btn.ghost-danger {
+    border-color: color-mix(in srgb, var(--red) 40%, transparent);
+    color: var(--red-2);
+  }
+  .ap-btn.ghost-danger:hover:not(:disabled) {
+    border-color: var(--red); color: var(--red-2);
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+  }
+  .ap-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ── Tables ──────────────────────────────────────────────── */
+  .ap-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ap-tbl th, .ap-tbl td {
+    padding: 9px 10px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .ap-tbl th {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+  }
+  .ap-tbl tr:hover { background: var(--bg-panel-2); }
+
+  /* ── Role pills (shared with users table) ────────────────── */
+  .ap-role-pill {
+    font-family: var(--mono); font-size: 9px; padding: 1px 7px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+  }
+  .ap-role-pill.sa { background: var(--red); color: #fff; }
+  .ap-role-pill.su { background: color-mix(in srgb, var(--text-muted) 25%, transparent); color: var(--text-muted); }
+  .ap-role-pill.user { background: var(--violet-glow); color: var(--violet-2); }
+
+  .ap-status-pill {
+    font-family: var(--mono); font-size: 9px; padding: 1px 7px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .ap-status-pill.active { background: rgba(79,209,139,0.14); color: var(--green); }
+  .ap-status-pill.suspended { background: rgba(232,184,74,0.14); color: var(--amber); }
+  .ap-status-pill.deleted { background: rgba(201,87,87,0.14); color: var(--red-2); }
+
+  /* ── Tile grid (landing) ─────────────────────────────────── */
+  .ap-tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .ap-tile {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer; text-decoration: none; color: inherit;
+    display: block;
+    transition: all 0.15s;
+  }
+  .ap-tile:hover {
+    border-color: var(--violet); transform: translateY(-1px);
+    box-shadow: 0 0 20px -10px var(--violet-glow);
+  }
+  .ap-tile-kicker {
+    font-family: var(--mono); font-size: 9px; color: var(--violet-2);
+    text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+  }
+  .ap-tile-title { font-weight: 700; font-size: 14px; margin: 4px 0 6px; }
+  .ap-tile-stat { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .ap-tile-stat .n { color: var(--text); font-weight: 600; }
+
+  /* ── Padlock placeholder hero ────────────────────────────── */
+  .ap-placeholder {
+    background: var(--bg-panel);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+    padding: 40px 30px; text-align: center;
+  }
+  .ap-placeholder .lock { font-size: 34px; opacity: 0.4; margin-bottom: 12px; }
+  .ap-placeholder h3 { font-size: 18px; margin-bottom: 8px; }
+  .ap-placeholder p { color: var(--text-muted); max-width: 560px; margin: 0 auto 8px; }
+  .ap-placeholder .roadmap {
+    display: inline-block; font-family: var(--mono); font-size: 10px;
+    padding: 3px 10px; border-radius: 10px;
+    background: rgba(232,184,74,0.14); color: var(--amber);
+    margin-top: 14px; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+
+  /* ── Callouts ────────────────────────────────────────────── */
+  .ap-callout {
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+    border-left: 3px solid var(--red);
+    border-radius: 4px;
+    padding: 12px 14px; font-size: 12px; margin: 12px 0;
+  }
+  .ap-callout.violet {
+    background: color-mix(in srgb, var(--violet) 8%, transparent);
+    border-left-color: var(--violet);
+  }
+  .ap-callout.amber {
+    background: color-mix(in srgb, var(--amber) 8%, transparent);
+    border-left-color: var(--amber);
+  }
+  .ap-callout b { font-weight: 600; }
+  .ap-callout ol, .ap-callout ul { margin: 6px 0 0 20px; }
+
+  /* ── Health tile row ─────────────────────────────────────── */
+  .ap-health-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .ap-health-tile {
+    background: var(--bg-panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px;
+  }
+  .ap-health-tile .label { font-family: var(--mono); font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .ap-health-tile .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .ap-health-tile .sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
+  code {
+    font-family: var(--mono); font-size: 0.92em;
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg);
+    padding: 10px; border-radius: 4px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  {% block extra_css %}{% endblock %}
+</style>
+</head>
+{# VF-328: body data attrs let client-side JS know which gate path the user holds
+   without an extra round trip. data-portal-mode is one of: su-elevated | stacked | break-glass. #}
+<body
+  data-sa-active="{{ 'true' if (acting_state and acting_state.has_sa_cookie) else 'false' }}"
+  data-portal-mode="{% if acting_state and acting_state.is_pure_break_glass %}break-glass{% elif acting_state and acting_state.is_stacked_sa %}stacked{% else %}su-elevated{% endif %}">
+
+{# VF-328: pure break-glass gets an unmissable pulsing red top strip. #}
+{% if acting_state and acting_state.is_pure_break_glass %}
+<div class="ap-break-glass-strip"></div>
+{% endif %}
+
+<!-- ═════════════════════ Topbar ═════════════════════ -->
+<div class="ap-topbar">
+  <div class="ap-title">
+    <span class="red-accent">Admin</span>
+    <span class="dim">Elevated Portal</span>
+    {# Build label: "0.7.0-RC (Pre-release)" on release branches, "Pre-RC · alembic <head>" on master.
+       Release builds get the orange-pulse class; dev builds stay quiet (dim grey). #}
+    {% if build_label %}<span class="ap-build-label{% if is_release_build %} is-release{% endif %}" title="Build identifier — quote this when reporting issues.">{{ build_label }}</span>{% endif %}
+    {# VF-328: pill text + pulse reflect actual session state. #}
+    {% if acting_state and acting_state.is_pure_break_glass %}
+      <span class="ap-pill-sa ap-pill-break-glass" title="Pure break-glass: SA cookie only, no underlying SU session. Sign out when done.">SA &middot; Break-Glass</span>
+    {% elif acting_state and acting_state.is_stacked_sa %}
+      <span class="ap-pill-sa ap-pill-stacked-pulse" title="SA privilege available on top of your SU session.">SA &middot; Elevated</span>
+    {% else %}
+      <span class="ap-pill-su" title="You are an elevated Super User. Tier-S writes (system config) require SA.">SU &middot; Elevated</span>
+    {% endif %}
+  </div>
+  <div class="ap-topbar-actions">
+    {% if elevation_ttl_seconds %}
+    <span class="ap-elev-meta">elevation expires in <span class="count" id="apElevCountdown">-</span></span>
+    {% endif %}
+    {# VF-328: SA sign-out — clears SA cookie + drops SU elevation in one click.
+       Always present, with copy that adapts to the current state. #}
+    {% if acting_state and acting_state.is_pure_break_glass %}
+    <a class="ap-signout" href="/admin/logout" title="End the break-glass session and return to login.">Sign out (SA)</a>
+    {% elif acting_state and acting_state.is_stacked_sa %}
+    <a class="ap-signout" href="/admin/logout" title="Drop SA cookie and SU elevation. Returns to the board.">Sign out (SA + SU)</a>
+    {% else %}
+    <a class="ap-signout" href="/admin/logout" title="Drop SU elevation. Returns to the board.">Exit admin mode</a>
+    {% endif %}
+    {# VF-328: pure break-glass has no board session to return to — disable the button. #}
+    {% if acting_state and acting_state.is_pure_break_glass %}
+    <a class="ap-back-to-board disabled" href="/ui/login" aria-disabled="true" title="No board session — sign in as a user first."><span class="arrow">&larr;</span> Back to Board</a>
+    {% else %}
+    <a class="ap-back-to-board" href="/ui/"><span class="arrow">&larr;</span> Back to Board</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ═════════════════════ Shell ═════════════════════ -->
+<div class="ap-shell">
+
+  <!-- Sidebar -->
+  <aside class="ap-sidebar">
+    <div class="ap-sb-label">Workspaces</div>
+    {% for grp in nav_tree %}
+      <div class="ap-sb-prime expanded" onclick="apToggleGroup(this)">
+        <span><span class="icon">{{ grp.icon }}</span>{{ grp.prime }}</span>
+        <span class="caret">&#9654;</span>
+      </div>
+      <div class="ap-sb-subs">
+        {% for sub in grp.subs %}
+          {% if sub.status == "live" %}
+            <a class="ap-sb-sub {% if active_admin == sub.id %}active{% endif %}" href="{{ sub.url }}">
+              <span>{{ sub.label }}</span>
+              <span class="ap-sb-badge live">live</span>
+            </a>
+          {% else %}
+            <a class="ap-sb-sub locked {% if active_admin == sub.id %}active{% endif %}" href="/admin/placeholder/{{ sub.id }}">
+              <span><span class="lock">&#128274;</span>{{ sub.label }}</span>
+              <span class="ap-sb-badge dev">dev</span>
+            </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </aside>
+
+  <!-- Workspace -->
+  <main class="ap-workspace">
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+
+{# VF-328 Tier-S confirm popup. Single instance per page; called by vfTierSGate.js
+   on click of any [data-tier="S"] element when the user is not currently SA. #}
+<div id="vf-tier-s-overlay" class="vf-ts-overlay" role="dialog" aria-modal="true" aria-labelledby="vf-ts-title" hidden>
+  <div class="vf-ts-card">
+    <div class="vf-ts-header">
+      <span class="vf-ts-shield">&#128737;</span>
+      <span class="vf-ts-kicker">Super Admin required</span>
+    </div>
+    <div class="vf-ts-body">
+      <div class="vf-ts-action" id="vf-ts-action">action</div>
+      <p class="vf-ts-line">This is a system-level change. Continuing takes you to the Super Admin login.</p>
+      <p class="vf-ts-line vf-ts-muted">Your Super User session stays active.</p>
+    </div>
+    <div class="vf-ts-footer">
+      <button type="button" class="ap-btn" id="vf-ts-cancel">Cancel</button>
+      {# VF-328: danger-styled Continue. Crossing into SA mode is itself the
+         risk-bearing decision; the button colour reflects that, not just the
+         destructive action that follows downstream. #}
+      <button type="button" class="ap-btn danger" id="vf-ts-continue">Continue to SA login &rarr;</button>
+    </div>
+  </div>
+</div>
+
+{# VF-329 themed confirm dialog. Single instance per page; controlled by window.apuConfirm. #}
+<div id="vf-cf-overlay" class="vf-cf-overlay" role="dialog" aria-modal="true" aria-labelledby="vf-cf-title" hidden>
+  <div class="vf-cf-card" id="vf-cf-card">
+    <div class="vf-cf-header"><span class="vf-cf-title" id="vf-cf-title">Confirm</span></div>
+    <div class="vf-cf-body" id="vf-cf-body">Are you sure?</div>
+    <div class="vf-cf-footer">
+      <button type="button" class="ap-btn" id="vf-cf-cancel">Cancel</button>
+      <button type="button" class="ap-btn primary" id="vf-cf-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+{# VF-329 NavGuard dialog. Single instance per page; controlled by NavGuard JS.
+   Two visual variants chosen at fire time: amber for dirty-form discard,
+   red for unacknowledged reveal panels (one-time-show data lost on leave). #}
+<div id="vf-navguard-overlay" class="vf-ng-overlay" role="dialog" aria-modal="true" aria-labelledby="vf-ng-kicker" hidden>
+  <div class="vf-ng-card">
+    <div class="vf-ng-header">
+      <span class="vf-ng-icon">&#9888;</span>
+      <span class="vf-ng-kicker" id="vf-ng-kicker">Unsaved changes</span>
+    </div>
+    <div class="vf-ng-body">
+      <p class="vf-ng-intro" id="vf-ng-intro">You have pending edits:</p>
+      <ul class="vf-ng-items" id="vf-ng-items"></ul>
+      <p class="vf-ng-warn" id="vf-ng-warn"></p>
+    </div>
+    <div class="vf-ng-footer">
+      <button type="button" class="ap-btn" id="vf-ng-stay">Stay</button>
+      <button type="button" class="ap-btn ghost-danger" id="vf-ng-leave">Discard &amp; go</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function apToggleGroup(el) {
+  el.classList.toggle('expanded');
+  const subs = el.nextElementSibling;
+  if (subs && subs.classList.contains('ap-sb-subs')) subs.classList.toggle('collapsed');
+}
+
+// VF-328: tier-S gate — finds [data-tier="S"] elements and either locks them
+// (no SA cookie) or lets them through (SA cookie present). Click on a locked
+// element opens the confirm popup; Continue redirects to /admin/login?as=sa
+// with the current path as return target. Cancel closes silently.
+(function vfTierSGate() {
+  var saActive = (document.body.dataset.saActive === 'true');
+  var lockedClass = 'vf-ts-locked';
+
+  function lockTierSElements() {
+    document.querySelectorAll('[data-tier="S"]').forEach(function(el) {
+      if (saActive) { el.classList.remove(lockedClass); el.removeAttribute('aria-disabled'); }
+      else          { el.classList.add(lockedClass);    el.setAttribute('aria-disabled', 'true'); }
+    });
+  }
+
+  // Capture-phase listener intercepts BEFORE any inline onclick fires. When the
+  // user is not currently SA, swallow the click and open the popup. When they
+  // are SA, do nothing here — the original handler runs normally.
+  function onCaptureClick(e) {
+    var t = e.target.closest('[data-tier="S"]'); if (!t) return;
+    if (saActive) return; // SA cookie present — let it through.
+    e.preventDefault(); e.stopImmediatePropagation();
+    var name = t.getAttribute('data-action-name') || 'this system-config action';
+    showPopup(name);
+  }
+
+  function showPopup(actionName) {
+    var ov  = document.getElementById('vf-tier-s-overlay');
+    var act = document.getElementById('vf-ts-action');
+    if (!ov || !act) return;
+    act.textContent = actionName;
+    ov.removeAttribute('hidden');
+    setTimeout(function() {
+      var btn = document.getElementById('vf-ts-cancel'); if (btn) btn.focus();
+    }, 30);
+  }
+  function hidePopup() {
+    var ov = document.getElementById('vf-tier-s-overlay'); if (ov) ov.setAttribute('hidden', '');
+  }
+  function continueToSA() {
+    var rt = window.location.pathname + window.location.search;
+    window.location = '/admin/login?as=sa&return=' + encodeURIComponent(rt);
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    lockTierSElements();
+    document.addEventListener('click', onCaptureClick, true); // capture
+    var c = document.getElementById('vf-ts-cancel');
+    var k = document.getElementById('vf-ts-continue');
+    var ov = document.getElementById('vf-tier-s-overlay');
+    if (c) c.addEventListener('click', hidePopup);
+    if (k) k.addEventListener('click', continueToSA);
+    if (ov) ov.addEventListener('click', function(e) { if (e.target === ov) hidePopup(); });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && ov && !ov.hidden) hidePopup();
+    });
+    // VF-328: MutationObserver re-applies lock class to tier-S elements that
+    // get injected after page load (e.g. cert wizard footer re-renders).
+    if (typeof MutationObserver !== 'undefined') {
+      new MutationObserver(function() { lockTierSElements(); })
+        .observe(document.body, { childList: true, subtree: true });
+    }
+  });
+})();
+
+// VF-329 NavGuard — universal "uncommitted state" layer.
+// Tracks two state categories:
+//   1. Dirty forms     — input/change inside an attached form, until detach()
+//   2. Unack reveals   — one-time-show values currently rendered in the DOM
+// Intercepts navigation (sidebar nav, topbar links, browser unload) and
+// shows a confirmation dialog itemising what would be lost.
+// See ADMIN-PORTAL-WORKSPACE-PATTERNS-PROPOSAL.md s4 for the full contract.
+(function vfNavGuard() {
+  var dirty = {};   // formId -> { label, el, _handler }
+  var reveals = {}; // revealId -> { label, dangerCopy, onAck }
+
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function attachForm(rootEl, formId, label) {
+    if (!rootEl || !formId || dirty[formId]) return;
+    var entry = { label: label || formId, el: rootEl };
+    var handler = function() {
+      // First user-input event wins; mark dirty and unbind so we don't keep firing.
+      dirty[formId] = entry;
+      rootEl.removeEventListener('input', handler);
+      rootEl.removeEventListener('change', handler);
+    };
+    entry._handler = handler;
+    rootEl.addEventListener('input', handler);
+    rootEl.addEventListener('change', handler);
+  }
+
+  function detachForm(formId) {
+    if (!formId) return;
+    var entry = dirty[formId];
+    if (entry && entry.el && entry._handler) {
+      entry.el.removeEventListener('input', entry._handler);
+      entry.el.removeEventListener('change', entry._handler);
+    }
+    delete dirty[formId];
+  }
+
+  function reveal(revealId, opts) {
+    if (!revealId) return;
+    opts = opts || {};
+    reveals[revealId] = {
+      label: opts.label || revealId,
+      dangerCopy: opts.dangerCopy || 'A one-time value is shown — leaving loses it.',
+      onAck: opts.onAck || null,
+    };
+  }
+
+  function ack(revealId) {
+    if (!revealId) return;
+    var r = reveals[revealId];
+    if (r && r.onAck) { try { r.onAck(); } catch(e) {} }
+    delete reveals[revealId];
+  }
+
+  function hasUnsaved() {
+    for (var k in dirty) if (Object.prototype.hasOwnProperty.call(dirty, k)) return true;
+    for (var k2 in reveals) if (Object.prototype.hasOwnProperty.call(reveals, k2)) return true;
+    return false;
+  }
+
+  function _showDialog(onLeave) {
+    var hasReveals = Object.keys(reveals).length > 0;
+    var ov = document.getElementById('vf-navguard-overlay');
+    if (!ov) { try { onLeave(); } catch(e) {} return; }
+    var card = ov.querySelector('.vf-ng-card');
+    var kicker = document.getElementById('vf-ng-kicker');
+    var intro = document.getElementById('vf-ng-intro');
+    var items = document.getElementById('vf-ng-items');
+    var warn = document.getElementById('vf-ng-warn');
+    var stayBtn = document.getElementById('vf-ng-stay');
+    var leaveBtn = document.getElementById('vf-ng-leave');
+
+    if (hasReveals) {
+      card.classList.add('vf-ng-reveal');
+      kicker.textContent = 'One-time value not acknowledged';
+      intro.textContent = 'These values are shown only once and cannot be retrieved:';
+      leaveBtn.textContent = 'Leave anyway';
+      warn.textContent = 'If you leave, the value(s) above are lost — they cannot be retrieved.';
+      warn.style.display = '';
+    } else {
+      card.classList.remove('vf-ng-reveal');
+      kicker.textContent = 'Unsaved changes';
+      intro.textContent = 'You have pending edits:';
+      leaveBtn.textContent = 'Discard & go';
+      warn.style.display = 'none';
+    }
+
+    // Reveals first (more urgent), then dirty forms.
+    var html = '';
+    Object.keys(reveals).forEach(function(id) {
+      html += '<li>' + _esc(reveals[id].label) +
+        ' <span style="color:var(--text-muted);font-style:italic;">— ' + _esc(reveals[id].dangerCopy) + '</span></li>';
+    });
+    Object.keys(dirty).forEach(function(id) {
+      html += '<li>' + _esc(dirty[id].label) + '</li>';
+    });
+    items.innerHTML = html;
+
+    function close() { ov.setAttribute('hidden', ''); cleanup(); }
+    function onStay() { close(); }
+    function onLeaveClick() {
+      // User explicitly chose to discard — wipe state.
+      dirty = {}; reveals = {};
+      close();
+      try { onLeave(); } catch(e) {}
+    }
+    function onKey(e) { if (e.key === 'Escape') onStay(); }
+    function onOverlayClick(e) { if (e.target === ov) onStay(); }
+    function cleanup() {
+      stayBtn.removeEventListener('click', onStay);
+      leaveBtn.removeEventListener('click', onLeaveClick);
+      document.removeEventListener('keydown', onKey);
+      ov.removeEventListener('click', onOverlayClick);
+    }
+
+    stayBtn.addEventListener('click', onStay);
+    leaveBtn.addEventListener('click', onLeaveClick);
+    document.addEventListener('keydown', onKey);
+    ov.addEventListener('click', onOverlayClick);
+    ov.removeAttribute('hidden');
+    setTimeout(function() { stayBtn.focus(); }, 30);
+  }
+
+  function guardedNav(intent, callback) {
+    if (typeof callback !== 'function') callback = function() {};
+    if (!hasUnsaved()) { callback(); return; }
+    _showDialog(callback);
+  }
+
+  // Capture-phase delegated listener: intercepts portal nav links so any
+  // workspace inherits guarded-nav for free. Workspaces that need to
+  // intercept their own list-row clicks call NavGuard.guardedNav() directly.
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('.ap-sb-sub, .ap-back-to-board, .ap-signout');
+    if (!a) return;
+    if (a.dataset.navguardSkip === 'true') return;
+    if (a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true') return;
+    if (!hasUnsaved()) return;
+    var href = a.getAttribute('href');
+    if (!href || href === '#') return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    _showDialog(function() { window.location = href; });
+  }, true);
+
+  // Browser-level — refresh / tab-close / back-forward.
+  window.addEventListener('beforeunload', function(e) {
+    if (!hasUnsaved()) return;
+    // Modern browsers ignore custom message but show their own.
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  });
+
+  window.NavGuard = {
+    attachForm: attachForm,
+    detachForm: detachForm,
+    reveal: reveal,
+    ack: ack,
+    hasUnsaved: hasUnsaved,
+    guardedNav: guardedNav,
+  };
+})();
+
+// VF-329 RevealPanel — reusable one-time-show component.
+// Mounts a pre-styled card with copy + acknowledge gate. Auto-registers with
+// NavGuard so navigating away before acknowledge fires the louder reveal dialog.
+//
+// Usage:
+//   RevealPanel.mount(parentEl, {
+//     kicker: 'GENERATED PASSWORD · SHOWN ONCE',
+//     value:  resp.temp_password,
+//     label:  'Generated password for ' + user.display_name,
+//     dangerCopy: 'Password for ' + user.display_name + ' is shown once.',
+//   });
+//
+// See ADMIN-PORTAL-WORKSPACE-PATTERNS-PROPOSAL.md s5 for the full contract.
+(function vfRevealPanel() {
+  var counter = 0;
+
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function mount(parent, opts) {
+    if (!parent || !opts || opts.value == null) return null;
+    var revealId = 'vf-reveal-' + (++counter);
+    var node = document.createElement('div');
+    node.className = 'vf-rp-card';
+    node.id = revealId;
+    // VF-329 F3: ackLabel is configurable per use case. For password resets the
+    // admin isn't keeping the value; they're handing it to the user. For agent
+    // tokens / recovery codes the admin IS saving it. Default = save-it copy;
+    // password-reset call site overrides.
+    var ackLabel = opts.ackLabel || 'I have saved this value somewhere safe';
+    node.innerHTML =
+      '<div class="vf-rp-kicker">// ' + _esc(opts.kicker || 'GENERATED VALUE · SHOWN ONCE') + '</div>' +
+      '<div class="vf-rp-row">' +
+        '<div class="vf-rp-value" id="' + revealId + '-val">' + _esc(opts.value) + '</div>' +
+        '<button type="button" class="ap-btn" id="' + revealId + '-copy">Copy</button>' +
+      '</div>' +
+      '<p class="vf-rp-warn">' + _esc(opts.dangerCopy || 'This value is shown only once. Save it now — it cannot be retrieved.') + '</p>' +
+      '<label class="vf-rp-ack-row">' +
+        '<input type="checkbox" id="' + revealId + '-chk">' +
+        '<span>' + _esc(ackLabel) + '</span>' +
+      '</label>' +
+      '<div class="vf-rp-footer">' +
+        '<button type="button" class="ap-btn ghost-danger" id="' + revealId + '-ack" disabled>Acknowledge</button>' +
+      '</div>';
+    parent.appendChild(node);
+
+    var valEl = node.querySelector('#' + revealId + '-val');
+    var copyBtn = node.querySelector('#' + revealId + '-copy');
+    var chk = node.querySelector('#' + revealId + '-chk');
+    var ackBtn = node.querySelector('#' + revealId + '-ack');
+
+    copyBtn.addEventListener('click', function() {
+      var raw = String(opts.value);
+      var copied = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try { navigator.clipboard.writeText(raw); copied = true; } catch(e) {}
+      }
+      if (!copied) {
+        var t = document.createElement('textarea');
+        t.value = raw; t.style.position = 'fixed'; t.style.opacity = '0';
+        document.body.appendChild(t); t.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(t);
+      }
+      // Auto-tick + enable Acknowledge.
+      chk.checked = true;
+      ackBtn.disabled = false;
+      var prev = copyBtn.textContent;
+      copyBtn.textContent = 'Copied ✓';
+      setTimeout(function() { copyBtn.textContent = prev || 'Copy'; }, 1800);
+    });
+
+    chk.addEventListener('change', function() {
+      ackBtn.disabled = !chk.checked;
+    });
+
+    ackBtn.addEventListener('click', function() {
+      valEl.textContent = '• • • • • • • •';
+      valEl.classList.add('vf-rp-redacted');
+      node.classList.add('vf-rp-acked');
+      ackBtn.disabled = true; copyBtn.disabled = true; chk.disabled = true;
+      ackBtn.textContent = 'Saved · acknowledged';
+      if (window.NavGuard) window.NavGuard.ack(revealId);
+      if (opts.onAck) { try { opts.onAck(); } catch(e) {} }
+    });
+
+    if (window.NavGuard) {
+      window.NavGuard.reveal(revealId, {
+        label: opts.label || (opts.kicker || 'Generated value'),
+        dangerCopy: opts.dangerCopy || 'This value is shown once and cannot be retrieved.',
+      });
+    }
+
+    return revealId;
+  }
+
+  window.RevealPanel = { mount: mount };
+})();
+
+// VF-329 apuConfirm — themed confirm() replacement. Returns a Promise that
+// resolves true on OK, false on Cancel/Escape/overlay-click. Async/await
+// friendly so callsites stay readable: `if (!await apuConfirm(...)) return;`.
+//
+// Usage:
+//   const ok = await apuConfirm({
+//     title: 'Soft-delete user?',
+//     body: 'This cascades revoke to all active agents. Restorable.',
+//     okLabel: 'Soft-delete', tone: 'danger',
+//   });
+(function vfThemedConfirm() {
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  window.apuConfirm = function(opts) {
+    opts = opts || {};
+    var ov = document.getElementById('vf-cf-overlay');
+    var card = document.getElementById('vf-cf-card');
+    var title = document.getElementById('vf-cf-title');
+    var body = document.getElementById('vf-cf-body');
+    var ok = document.getElementById('vf-cf-ok');
+    var cancel = document.getElementById('vf-cf-cancel');
+    if (!ov || !card) return Promise.resolve(false);
+
+    title.textContent = opts.title || 'Confirm';
+    body.innerHTML = opts.bodyHtml || _esc(opts.body || 'Are you sure?');
+    ok.textContent = opts.okLabel || 'OK';
+    cancel.textContent = opts.cancelLabel || 'Cancel';
+    card.classList.remove('danger', 'amber');
+    if (opts.tone === 'danger') card.classList.add('danger');
+    else if (opts.tone === 'amber') card.classList.add('amber');
+    ok.classList.remove('primary', 'danger', 'ghost-danger');
+    ok.classList.add(opts.tone === 'danger' ? 'danger' : (opts.tone === 'amber' ? 'ghost-danger' : 'primary'));
+
+    return new Promise(function(resolve) {
+      function close(result) {
+        ov.setAttribute('hidden', '');
+        ok.removeEventListener('click', onOk);
+        cancel.removeEventListener('click', onCancel);
+        document.removeEventListener('keydown', onKey);
+        ov.removeEventListener('click', onOverlay);
+        resolve(result);
+      }
+      function onOk()      { close(true); }
+      function onCancel()  { close(false); }
+      function onKey(e)    { if (e.key === 'Escape') close(false); else if (e.key === 'Enter') close(true); }
+      function onOverlay(e){ if (e.target === ov) close(false); }
+      ok.addEventListener('click', onOk);
+      cancel.addEventListener('click', onCancel);
+      document.addEventListener('keydown', onKey);
+      ov.addEventListener('click', onOverlay);
+      ov.removeAttribute('hidden');
+      setTimeout(function() { (opts.tone === 'danger' ? cancel : ok).focus(); }, 30);
+    });
+  };
+})();
+
+{% if elevation_ttl_seconds %}
+// Elevation countdown — simple client-side ticker. If it hits 0 we reload so
+// the server-side gate can redirect to /admin/login.
+(function() {
+  let remaining = {{ elevation_ttl_seconds | int }};
+  const el = document.getElementById('apElevCountdown');
+  function render() {
+    if (remaining <= 0) { location.reload(); return; }
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    if (el) el.textContent = `${m}:${String(s).padStart(2,'0')}`;
+  }
+  render();
+  setInterval(() => { remaining--; render(); }, 1000);
+})();
+{% endif %}
+
+{% block extra_js %}{% endblock %}
+</script>
+
+</body>
+</html>

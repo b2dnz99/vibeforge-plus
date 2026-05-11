@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}{{ project.name if project else 'Project' }} — VibeForge+{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title">
+    <a href="/ui/" style="color: var(--color-text-muted); text-decoration: none;">Home</a>
+    <span style="margin: 0 var(--space-2); color: var(--color-text-muted);">/</span>
+    {{ project.name if project else slug }}
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost" onclick="window.openSearchPopup && window.openSearchPopup()" title="Search tasks" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);gap:var(--space-2);display:inline-flex;align-items:center">&#128269; Search</button>
+    <a href="/ui/projects/{{ project.slug }}/board" class="btn btn-secondary">Board</a>
+    <a href="/ui/projects/{{ project.slug }}/gantt" class="btn btn-secondary">Gantt</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if project %}
+<div style="max-width: 860px;">
+
+  {% if project.resume_summary %}
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-2);">Resume Summary</div>
+    <div style="color: var(--color-text); line-height: 1.6;">{{ project.resume_summary }}</div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-3);">Tasks</div>
+    <div hx-get="/api/v2/projects/{{ project.slug }}/tasks/partial"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div style="color:var(--color-text-muted);font-size:var(--text-sm);">Loading tasks…</div>
+    </div>
+  </div>
+
+</div>
+
+{# VF-305: global task search pop-up. Ctrl/Cmd+K. #}
+{% include "ui/_search_popup.html" %}
+{% else %}
+<div style="color: var(--color-text-muted);">Project not found.</div>
+{% endif %}
+{% endblock %}

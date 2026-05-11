@@ -1,0 +1,212 @@
+{# ── Tome Keeper Archive Animation — shared partial ── #}
+{# Call: playArchiveAnimation(projectName, stats) #}
+
+<div id="archiveAnimStage" style="position:fixed;inset:0;background:rgba(10,15,30,0.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;z-index:300;">
+  <div style="position:absolute;bottom:28%;left:0;right:0;height:1px;background:rgba(124,58,237,0.06);"></div>
+  <div id="aaParticles" style="position:absolute;inset:0;pointer-events:none;z-index:20;"></div>
+
+  <div id="aaTome" style="position:absolute;bottom:40%;left:0%;width:48px;height:64px;opacity:0;z-index:15;background:linear-gradient(145deg,#7c3aed,#5b21b6);border-radius:3px 6px 6px 3px;box-shadow:0 0 24px rgba(124,58,237,0.5),0 3px 12px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:6px;">
+    <span id="aaTomeTitle" style="font-family:'JetBrains Mono',monospace;font-size:6px;font-weight:700;color:rgba(255,255,255,0.9);text-align:center;line-height:1.3;"></span>
+  </div>
+
+  <div id="aaCourier" style="position:absolute;bottom:28%;left:-8%;width:38px;height:74px;opacity:0;z-index:10;">
+    <svg viewBox="0 0 38 74" fill="none" width="38" height="74" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.5))">
+      <circle cx="19" cy="12" r="8" fill="#e2e8f0"/><path d="M11 10 Q13 3 23 4 Q29 5 27 12" fill="#7c3aed"/>
+      <circle cx="16" cy="11" r="1.2" fill="#1e293b"/><circle cx="22" cy="11" r="1.2" fill="#1e293b"/>
+      <circle cx="16.3" cy="10.7" r="0.4" fill="#fff"/><circle cx="22.3" cy="10.7" r="0.4" fill="#fff"/>
+      <path d="M16 15 Q19 17 22 15" stroke="#1e293b" stroke-width="0.7" fill="none"/>
+      <rect x="17" y="19" width="4" height="3" fill="#e2e8f0"/>
+      <path d="M9 22 L7 48 H31 L29 22 Q19 20 9 22Z" fill="#7c3aed"/>
+      <rect x="8" y="38" width="22" height="3" rx="1" fill="#f59e0b"/>
+      <rect x="11" y="48" width="6" height="18" rx="2" fill="#334155"/><rect x="21" y="48" width="6" height="18" rx="2" fill="#334155"/>
+      <rect x="10" y="63" width="8" height="5" rx="2" fill="#1e293b"/><rect x="20" y="63" width="8" height="5" rx="2" fill="#1e293b"/>
+      <path d="M9 24 L4 36" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round"/><circle cx="4" cy="36" r="2" fill="#e2e8f0"/>
+      <rect x="1" y="36" width="6" height="8" rx="1.5" fill="transparent" stroke="#f59e0b" stroke-width="0.8"/>
+      <rect x="2" y="38" width="4" height="4" rx="1" fill="#f59e0b" opacity="0.6"/>
+      <path d="M29 24 L34 32" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round"/><circle cx="34" cy="32" r="2" fill="#e2e8f0"/>
+      <path d="M13 22 Q15 28 11 32" stroke="#a78bfa" stroke-width="1" fill="none" opacity="0.5"/>
+    </svg>
+  </div>
+
+  <div id="aaLibrarian" style="position:absolute;bottom:28%;left:68%;width:42px;height:92px;opacity:0;z-index:10;">
+    <svg viewBox="0 0 42 92" fill="none" width="42" height="92" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.5))">
+      <ellipse cx="21" cy="14" rx="9" ry="10" fill="#e2e8f0"/>
+      <circle cx="17" cy="13" r="3.5" stroke="#94a3b8" stroke-width="0.7" fill="rgba(148,163,184,0.08)"/>
+      <circle cx="25" cy="13" r="3.5" stroke="#94a3b8" stroke-width="0.7" fill="rgba(148,163,184,0.08)"/>
+      <line x1="20.5" y1="13" x2="21.5" y2="13" stroke="#94a3b8" stroke-width="0.6"/>
+      <circle cx="17" cy="12.5" r="1" fill="#1e293b"/><circle cx="25" cy="12.5" r="1" fill="#1e293b"/>
+      <circle cx="17.3" cy="12.2" r="0.3" fill="#fff"/><circle cx="25.3" cy="12.2" r="0.3" fill="#fff"/>
+      <path d="M18 18 Q21 20 24 18" stroke="#1e293b" stroke-width="0.6" fill="none"/>
+      <path d="M15 19 Q16 25 21 26 Q26 25 27 19" fill="#94a3b8" opacity="0.25"/>
+      <path d="M7 28 L5 86 H37 L35 28 Q21 24 7 28Z" fill="#1e293b" stroke="#7c3aed" stroke-width="0.4"/>
+      <path d="M11 28 Q21 34 31 28" fill="none" stroke="#7c3aed" stroke-width="0.7"/>
+      <path d="M9 52 Q21 56 33 52" stroke="#7c3aed" stroke-width="1.2" fill="none"/>
+      <path d="M7 32 L2 48" stroke="#e2e8f0" stroke-width="2.5" stroke-linecap="round"/><circle cx="2" cy="48" r="2" fill="#e2e8f0"/>
+      <path d="M35 32 L39 48" stroke="#e2e8f0" stroke-width="2.5" stroke-linecap="round"/><circle cx="39" cy="48" r="2" fill="#e2e8f0"/>
+      <ellipse cx="15" cy="88" rx="5" ry="3" fill="#0f172a"/><ellipse cx="27" cy="88" rx="5" ry="3" fill="#0f172a"/>
+    </svg>
+  </div>
+
+  <div id="aaVault" style="position:absolute;bottom:28%;left:82%;width:150px;height:210px;opacity:0;z-index:2;">
+    <div style="width:100%;height:100%;border:2px solid rgba(124,58,237,0.2);border-radius:75px 75px 0 0;background:linear-gradient(180deg,rgba(30,41,59,0.95),rgba(15,23,42,0.98));position:relative;overflow:hidden;">
+      <div style="position:absolute;left:14px;right:14px;height:1px;background:rgba(124,58,237,0.12);top:25%"></div>
+      <div style="position:absolute;left:14px;right:14px;height:1px;background:rgba(124,58,237,0.12);top:50%"></div>
+      <div style="position:absolute;left:14px;right:14px;height:1px;background:rgba(124,58,237,0.12);top:75%"></div>
+      <div style="position:absolute;left:18px;height:24px;width:7px;top:calc(25% - 24px);background:#ef4444;opacity:0.3;border-radius:1px 1px 0 0;bottom:auto"></div>
+      <div style="position:absolute;left:28px;height:20px;width:7px;top:calc(25% - 20px);background:#10b981;opacity:0.3;border-radius:1px 1px 0 0;bottom:auto"></div>
+      <div style="position:absolute;left:38px;height:28px;width:7px;top:calc(25% - 28px);background:#38bdf8;opacity:0.25;border-radius:1px 1px 0 0;bottom:auto"></div>
+      <div style="position:absolute;left:18px;height:22px;width:7px;top:calc(50% - 22px);background:#f59e0b;opacity:0.3;border-radius:1px 1px 0 0;bottom:auto"></div>
+      <div style="position:absolute;left:28px;height:26px;width:7px;top:calc(50% - 26px);background:#a78bfa;opacity:0.2;border-radius:1px 1px 0 0;bottom:auto"></div>
+      <div id="aaNewSpine" style="position:absolute;left:38px;height:24px;width:7px;top:calc(50% - 24px);background:#7c3aed;opacity:0;border-radius:1px 1px 0 0;bottom:auto;transition:opacity 0.3s"></div>
+    </div>
+    <div id="aaGate" style="position:absolute;inset:0;border-radius:75px 75px 0 0;background:rgba(10,15,30,0.97);border:2px solid rgba(124,58,237,0.3);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;clip-path:inset(0 0 0 0);transition:clip-path 0.8s cubic-bezier(0.4,0,0.2,1)">
+      <div style="width:44px;height:44px;border-radius:50%;border:2px solid #7c3aed;box-shadow:0 0 12px rgba(124,58,237,0.4);display:flex;align-items:center;justify-content:center"><div style="width:10px;height:10px;border-radius:50%;background:#7c3aed;opacity:0.5"></div></div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:7px;color:#64748b;text-transform:uppercase;letter-spacing:0.12em">archives</div>
+    </div>
+  </div>
+
+  <!-- Summary card -->
+  <div id="aaSummary" style="position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.5s;">
+    <div id="aaSummaryCard" style="background:rgba(15,23,42,0.85);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);border:1px solid rgba(124,58,237,0.25);border-radius:16px;padding:32px 48px;text-align:center;box-shadow:0 0 60px rgba(124,58,237,0.15),0 24px 48px rgba(0,0,0,0.4);transform:scale(0.9);transition:transform 0.5s cubic-bezier(0.34,1.56,0.64,1);">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;padding:3px 14px;border-radius:99px;background:rgba(124,58,237,0.2);color:#7c3aed;text-transform:uppercase;letter-spacing:0.12em;display:inline-block;margin-bottom:12px;">Safely Archived</div>
+      <div id="aaSumName" style="font-size:22px;font-weight:700;margin-bottom:6px;"></div>
+      <div id="aaSumStats" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#475569;margin-bottom:4px;"></div>
+      <div style="width:240px;height:4px;background:rgba(100,116,139,0.2);border-radius:2px;overflow:hidden;margin:16px auto;"><div id="aaSumBar" style="height:100%;border-radius:2px;background:linear-gradient(90deg,#10b981,#7c3aed);width:0;transition:width 1.2s ease;"></div></div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7c3aed;margin-top:12px;opacity:0.7;">Stored in the vault by the Keeper</div>
+      <button id="aaDismiss" style="margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 24px;border-radius:8px;border:1px solid rgba(124,58,237,0.3);background:transparent;color:#e2e8f0;cursor:pointer;" onclick="dismissArchiveAnim()">Continue</button>
+    </div>
+  </div>
+
+  <button id="aaSkip" style="position:fixed;bottom:16px;right:16px;z-index:400;font-family:'JetBrains Mono',monospace;font-size:10px;padding:4px 12px;border-radius:4px;border:1px solid rgba(148,163,184,0.2);background:rgba(15,23,42,0.8);color:#64748b;cursor:pointer;display:none;" onclick="skipArchiveAnim()">skip ▸</button>
+</div>
+
+<style>
+@keyframes aa-walk{0%,100%{transform:translateY(0)}30%{transform:translateY(-3px) rotate(-0.5deg)}70%{transform:translateY(-3px) rotate(0.5deg)}}
+@keyframes aa-glow{0%,100%{box-shadow:0 0 20px rgba(124,58,237,0.4),0 3px 12px rgba(0,0,0,0.5)}50%{box-shadow:0 0 32px rgba(124,58,237,0.6),0 3px 12px rgba(0,0,0,0.5)}}
+@keyframes aa-spark{0%{opacity:0;transform:scale(0)}20%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translate(var(--sx),var(--sy)) scale(0)}}
+@keyframes aa-seal{0%{box-shadow:0 0 0 0 rgba(124,58,237,0.5)}50%{box-shadow:0 0 40px 8px rgba(124,58,237,0.3)}100%{box-shadow:0 0 0 0 transparent}}
+</style>
+
+<script>
+var _aaTimers = [];
+var _aaCallback = null;
+
+function _aat(fn, ms) { _aaTimers.push(setTimeout(fn, ms)); }
+
+function _aaSparks(leftPct, bottomPct, n, color) {
+  var p = document.getElementById('aaParticles');
+  for (var i = 0; i < n; i++) {
+    var s = document.createElement('div');
+    var dx = (Math.random()-0.5)*60, dy = (Math.random()-0.5)*40-10;
+    s.style.cssText = 'position:absolute;border-radius:50%;width:3px;height:3px;background:'+color+';left:'+leftPct+'%;bottom:'+bottomPct+'%;opacity:0;--sx:'+dx+'px;--sy:'+dy+'px;animation:aa-spark 0.6s ease forwards '+(i*0.03)+'s;';
+    p.appendChild(s);
+  }
+}
+
+function playArchiveAnimation(projectName, statsText, callback) {
+  _aaCallback = callback;
+  var stage = document.getElementById('archiveAnimStage');
+  stage.style.display = 'block';
+  document.getElementById('aaSkip').style.display = 'block';
+  document.getElementById('aaTomeTitle').textContent = projectName;
+  document.getElementById('aaSumName').textContent = projectName;
+  document.getElementById('aaSumStats').textContent = statsText || '';
+  document.getElementById('aaParticles').innerHTML = '';
+
+  var c = document.getElementById('aaCourier');
+  var l = document.getElementById('aaLibrarian');
+  var v = document.getElementById('aaVault');
+  var tome = document.getElementById('aaTome');
+  var gate = document.getElementById('aaGate');
+  var ns = document.getElementById('aaNewSpine');
+  var sum = document.getElementById('aaSummary');
+  var sumCard = document.getElementById('aaSummaryCard');
+
+  // Reset
+  c.style.cssText += ';left:-8%;opacity:0;animation:none;transform:none;';
+  l.style.cssText += ';opacity:0;transform:translateX(20px);';
+  v.style.cssText += ';opacity:0;';
+  tome.style.cssText += ';left:-5%;bottom:40%;opacity:0;transform:scale(0.6) rotate(-3deg);animation:aa-glow 1.5s ease-in-out infinite;';
+  gate.style.clipPath = 'inset(0 0 0 0)'; gate.classList.remove('open');
+  gate.style.animation = 'none';
+  ns.style.opacity = '0';
+  sum.style.opacity = '0'; sum.style.pointerEvents = 'none';
+  sumCard.style.transform = 'scale(0.9)';
+  document.getElementById('aaSumBar').style.width = '0';
+
+  // 0.0s — Enter
+  c.style.opacity = '1'; tome.style.opacity = '1';
+  c.style.transition = 'left 1.8s cubic-bezier(0.25,0.1,0.25,1)'; c.style.left = '52%';
+  c.style.animation = 'aa-walk 0.35s ease-in-out infinite';
+  tome.style.transition = 'left 1.8s cubic-bezier(0.25,0.1,0.25,1), bottom 1.8s ease';
+  tome.style.left = '55%'; tome.style.bottom = '42%';
+
+  // 0.8s — Scene appears
+  _aat(function() {
+    v.style.transition = 'opacity 0.5s'; v.style.opacity = '1';
+    l.style.transition = 'opacity 0.5s, transform 0.5s'; l.style.opacity = '1'; l.style.transform = 'translateX(0)';
+    gate.classList.add('open');
+  }, 800);
+
+  // 1.8s — Stop, extend
+  _aat(function() {
+    c.style.animation = 'none';
+    _aaSparks(56, 42, 6, '#f59e0b');
+    tome.style.transition = 'left 0.5s ease, bottom 0.5s ease, transform 0.5s ease';
+    tome.style.left = '62%'; tome.style.bottom = '44%'; tome.style.transform = 'scale(0.6) rotate(0deg)';
+  }, 1800);
+
+  // 2.3s — Librarian receives
+  _aat(function() {
+    l.style.transition = 'transform 0.2s ease'; l.style.transform = 'translateY(-4px)';
+    _aat(function() { l.style.transform = 'translateY(0)'; }, 200);
+    tome.style.transition = 'left 0.4s ease, bottom 0.4s ease, transform 0.4s ease';
+    tome.style.left = '66%'; tome.style.bottom = '45%'; tome.style.transform = 'scale(0.55) rotate(2deg)';
+  }, 2300);
+
+  // 2.8s — Place on shelf
+  _aat(function() {
+    l.style.transition = 'transform 0.3s ease'; l.style.transform = 'translateX(20px)';
+    tome.style.transition = 'left 0.6s ease, bottom 0.6s ease, transform 0.6s ease, opacity 0.6s ease';
+    tome.style.left = '86%'; tome.style.bottom = '52%'; tome.style.transform = 'scale(0.25)'; tome.style.opacity = '0.5';
+    _aat(function() { tome.style.opacity = '0'; ns.style.opacity = '0.7'; _aaSparks(87, 53, 8, '#7c3aed'); l.style.transform = 'translateX(0)'; }, 500);
+  }, 2800);
+
+  // 3.5s — Bow + exit
+  _aat(function() {
+    c.style.transition = 'transform 0.25s ease'; c.style.transform = 'rotate(8deg)';
+    _aat(function() { c.style.transform = 'rotate(0)';
+      _aat(function() { c.style.transition = 'left 0.7s ease, opacity 0.4s ease'; c.style.left = '-8%'; c.style.opacity = '0'; }, 200);
+    }, 250);
+  }, 3500);
+
+  // 3.8s — Seal
+  _aat(function() {
+    gate.classList.remove('open'); gate.style.animation = 'aa-seal 0.8s ease';
+    _aaSparks(88, 45, 10, '#7c3aed');
+    l.style.transition = 'opacity 0.5s'; l.style.opacity = '0.2';
+  }, 3800);
+
+  // 4.5s — Summary
+  _aat(function() { _aaShowSummary(); }, 4500);
+}
+
+function _aaShowSummary() {
+  _aaTimers.forEach(clearTimeout);
+  document.getElementById('aaSkip').style.display = 'none';
+  ['aaVault','aaLibrarian','aaCourier','aaTome'].forEach(function(id) {
+    var e = document.getElementById(id); if (e) { e.style.transition = 'opacity 0.4s'; e.style.opacity = '0.08'; }
+  });
+  var sum = document.getElementById('aaSummary');
+  sum.style.opacity = '1'; sum.style.pointerEvents = 'auto';
+  document.getElementById('aaSummaryCard').style.transform = 'scale(1)';
+  setTimeout(function() { document.getElementById('aaSumBar').style.width = '100%'; }, 200);
+}
+
+function skipArchiveAnim() { _aaShowSummary(); }
+
+function dismissArchiveAnim() {
+  document.getElementById('archiveAnimStage').style.display = 'none';
+  if (_aaCallback) _aaCallback();
+}
+</script>

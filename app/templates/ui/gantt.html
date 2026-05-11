@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Gantt — {{ project.name if project else slug }} — VibeForge+{% endblock %}
+
+{% block content_class %}board-content{% endblock %}
+
+{% block topbar %}
+<div class="topbar">
+  <div class="topbar-title">
+    <a href="/ui/" style="color: var(--color-text-muted); text-decoration: none;">Home</a>
+    <span style="margin: 0 var(--space-2); color: var(--color-text-muted);">/</span>
+    <a href="/ui/projects/{{ project.slug if project else slug }}" style="color: var(--color-text-muted); text-decoration: none;">{{ project.name if project else slug }}</a>
+    <span style="margin: 0 var(--space-2); color: var(--color-text-muted);">/</span>
+    Gantt
+  </div>
+  <div class="topbar-actions">
+    <div class="view-toggle">
+      <a href="/ui/projects/{{ project.slug if project else slug }}/board"
+         class="view-toggle-btn">Board</a>
+      <span class="view-toggle-btn active">Gantt</span>
+    </div>
+    {% if not project or project.status == 'active' %}
+    <button class="btn btn-primary" onclick="openAddTask()" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);">+ Add Task</button>
+    {% endif %}
+    <button class="btn btn-ghost" onclick="window.openSearchPopup && window.openSearchPopup()" title="Search tasks" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);gap:var(--space-2);display:inline-flex;align-items:center">&#128269; Search</button>
+    {% if project and project.status in ('archived', 'completed') %}
+    <span style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-text-muted);padding:var(--space-1) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);">Read-only ({{ project.status }})</span>
+    {% endif %}
+    {% include "ui/_project_actions.html" %}
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% set slug = project.slug if project else slug %}
+
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
+
+  {# ── Toolbar ── #}
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) var(--space-4);flex-shrink:0;">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;font-weight:600;color:hsl(var(--hue) 68% 55%);text-transform:uppercase;letter-spacing:0.1em;">Timeline</span>
+    <div style="display:flex;gap:var(--space-2);">
+      <button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);" onclick="document.querySelectorAll('.vf-gantt-ms').forEach(d=>d.open=true)">Expand All</button>
+      <button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);" onclick="document.querySelectorAll('.vf-gantt-ms').forEach(d=>d.open=false)">Collapse All</button>
+      <button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);" onclick="document.getElementById('addMilestoneForm').style.display=document.getElementById('addMilestoneForm').style.display==='none'?'flex':'none'">+ Milestone</button>
+      <button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);color:var(--color-text-muted);" onclick="showArchiveProject()">Archive Project</button>
+    </div>
+  </div>
+
+  {# Add Milestone inline form #}
+  <div id="addMilestoneForm" style="display:none;gap:var(--space-2);padding:0 var(--space-4) var(--space-2);flex-shrink:0;align-items:center;">
+    <input id="msName" type="text" placeholder="Milestone name" style="flex:1;padding:var(--space-1) var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:transparent;color:var(--color-text);font-size:var(--text-xs);">
+    <input id="msLabel" type="text" placeholder="Label (e.g. D)" style="width:80px;padding:var(--space-1) var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:transparent;color:var(--color-text);font-size:var(--text-xs);">
+    <button class="btn btn-primary" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);" onclick="createMilestone()">Create</button>
+    <button class="btn btn-ghost" style="font-size:var(--text-xs);" onclick="document.getElementById('addMilestoneForm').style.display='none'">Cancel</button>
+  </div>
+
+  {# ── Gantt body ── #}
+  <div style="flex:1;overflow-y:auto;padding:0 var(--space-4) var(--space-4);">
+
+    {% for ms in gantt_milestones %}
+    {% set ms_phase_list = ms_phases.get(ms.id, []) %}
+    {% set ns = namespace(count=0, done=0) %}
+    {% for ph in ms_phase_list %}{% for t in phase_tasks.get(ph.id, []) %}{% set ns.count = ns.count + 1 %}{% if t.status in ['done', 'cancelled'] %}{% set ns.done = ns.done + 1 %}{% endif %}{% endfor %}{% endfor %}
+
+    <details class="vf-gantt-ms" {% if ms.status != 'done' %}open{% endif %}>
+      <summary class="vf-gantt-ms-header">
+        <span class="vf-gantt-ms-arrow"></span>
+        <span class="vf-gantt-ms-label">{{ ms.label }}</span>
+        <span class="vf-gantt-ms-name">{{ ms.name }}</span>
+        <span class="vf-gantt-ms-count">{{ ns.done }}/{{ ns.count }} tasks</span>
+        <span class="vf-gantt-ms-status {% if ms.status == 'done' %}vf-gantt-status-done{% endif %}">{{ ms.status }}</span>
+        {% if ms.status == 'done' %}
+        <button class="btn btn-ghost" style="font-size:0.55rem;padding:1px 6px;color:var(--color-text-muted);" onclick="event.stopPropagation();reopenMilestone('{{ ms.id }}','{{ ms.name }}')">Reopen</button>
+        {% else %}
+        <button class="btn btn-ghost" style="font-size:0.55rem;padding:1px 6px;color:var(--color-text-muted);" onclick="event.stopPropagation();closeMilestone('{{ ms.id }}','{{ ms.name }}')">Close</button>
+        {% endif %}
+      </summary>
+
+      {# Progress bar #}
+      {% set ms_pct = ((ns.done / ns.count * 100) | round | int) if ns.count > 0 else 0 %}
+      <div class="vf-gantt-progress"><div class="vf-gantt-fill {% if ms.status == 'done' %}vf-gantt-fill-done{% else %}vf-gantt-fill-active{% endif %}" style="width:{{ ms_pct }}%"></div></div>
+
+      {% for phase in ms_phase_list %}
+      {% set ph_tasks = phase_tasks.get(phase.id, []) %}
+      {% set ph_resolved = ph_tasks | selectattr('status', 'in', ['done', 'cancelled']) | list | length %}
+      {% set ph_done = ph_tasks | length > 0 and ph_resolved == ph_tasks | length %}
+      <div class="vf-gantt-phase{% if ph_done %} vf-gantt-phase-done{% endif %}">
+        <div class="vf-gantt-phase-header">
+          <span class="vf-gantt-phase-name">{{ phase.name }}</span>
+          <span class="vf-gantt-phase-count">{{ ph_resolved }}/{{ ph_tasks | length }}{% if ph_done %} ✓{% endif %}</span>
+        </div>
+        <div class="vf-gantt-bars">
+          {% for task in phase_tasks.get(phase.id, []) %}
+          <a class="vf-gantt-bar vf-gantt-bar-{{ task.status }}"
+             href="/ui/projects/{{ slug }}/board?open={{ task.id }}"
+             title="{{ task.title }}&#10;{{ task.description[:120] if task.description else 'No description' }}&#10;Status: {{ task.status }} · Priority: {{ task.priority }} · Owner: {{ task.owner_label }}">
+            <span class="vf-gantt-bar-title">{% if project.prefix and task.task_number %}<span style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--color-text-muted);margin-right:0.25rem;">{{ project.prefix }}-{{ task.task_number }}</span>{% endif %}{{ task.title }}</span>
+            <span class="vf-gantt-bar-meta">{{ task.priority }} · {% if task.owner_label == 'agent' %}🤖{% else %}👤{% endif %} {{ task.owner_label }}</span>
+          </a>
+          {% else %}
+          <div class="vf-gantt-empty">No tasks</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="vf-gantt-empty" style="padding:0.5rem 1.5rem;">No phases defined</div>
+      {% endfor %}
+      <div style="padding:var(--space-1) var(--space-4) var(--space-2) calc(var(--space-4) + 1rem);">
+        <button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);color:var(--color-text-muted);" onclick="addPhaseInline('{{ ms.id }}',this)">+ Phase</button>
+      </div>
+    </details>
+    {% endfor %}
+
+    {# Triage #}
+    {% set triage_phases = ms_phases.get(0, []) + ms_phases.get(None, []) %}
+    {% if triage_phases %}
+    {% set ns = namespace(count=0) %}
+    {% for ph in triage_phases %}{% set ns.count = ns.count + phase_tasks.get(ph.id, []) | length %}{% endfor %}
+    {% if ns.count > 0 %}
+    <details class="vf-gantt-ms">
+      <summary class="vf-gantt-ms-header">
+        <span class="vf-gantt-ms-arrow"></span>
+        <span class="vf-gantt-ms-label" style="color:var(--color-text-muted);background:var(--color-surface-sub);">—</span>
+        <span class="vf-gantt-ms-name">Triage</span>
+        <span class="vf-gantt-ms-count">{{ ns.count }} tasks</span>
+      </summary>
+      {% for phase in triage_phases %}
+      {% if phase_tasks.get(phase.id, []) | length > 0 %}
+      <div class="vf-gantt-phase">
+        <div class="vf-gantt-phase-header">
+          <span class="vf-gantt-phase-name">{{ phase.name }}</span>
+          <span class="vf-gantt-phase-count">{{ phase_tasks.get(phase.id, []) | length }}</span>
+        </div>
+        <div class="vf-gantt-bars">
+          {% for task in phase_tasks.get(phase.id, []) %}
+          <a class="vf-gantt-bar vf-gantt-bar-{{ task.status }}"
+             href="/ui/projects/{{ slug }}/board?open={{ task.id }}"
+             title="{{ task.title }}&#10;{{ task.description[:120] if task.description else '' }}">
+            <span class="vf-gantt-bar-title">{% if project.prefix and task.task_number %}<span style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--color-text-muted);margin-right:0.25rem;">{{ project.prefix }}-{{ task.task_number }}</span>{% endif %}{{ task.title }}</span>
+            <span class="vf-gantt-bar-meta">{{ task.priority }} · {% if task.owner_label == 'agent' %}🤖{% else %}👤{% endif %} {{ task.owner_label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </details>
+    {% endif %}
+    {% endif %}
+
+  </div>
+</div>
+
+{% include "ui/_editor.html" %}
+{% include "ui/_addtask.html" %}
+{% include "ui/_archive_animation.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% include "ui/_editor_js.html" %}
+{% include "ui/_addtask_js.html" %}
+
+// Archive project
+function showArchiveProject() {
+  _showSelectPrompt(
+    'Archive Project',
+    'All tasks must be done or cancelled before archiving.',
+    [{value:'completed',label:'Completed'},{value:'abandoned',label:'Abandoned'}],
+    'Reason for archiving...',
+    function(type, reason) {
+      if (!reason) { _showAlert('Error', 'Reason is required.'); return; }
+      fetch('/api/v2/projects/{{ project.slug }}/archive', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason_type: type, reason: reason}),
+      }).then(r => {
+        if (r.ok) { window.location.href = '/ui/'; }
+        else { r.json().then(d => _showAlert('Cannot Archive', d.detail || 'Error')); }
+      });
+    }
+  );
+}
+
+// Close milestone
+function closeMilestone(id, name) {
+  _showPrompt(
+    'Close Milestone',
+    'Close "' + name + '"? All tasks must be done or cancelled.',
+    'Reason for closing...',
+    function(reason) {
+      if (!reason) { _showAlert('Error', 'Reason is required.'); return; }
+      fetch('/api/v2/milestones/' + id + '/close', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: reason}),
+      }).then(r => {
+        if (r.ok) location.reload();
+        else r.json().then(d => _showAlert('Cannot Close', d.detail || 'Error'));
+      });
+    }
+  );
+}
+
+// Reopen milestone
+function reopenMilestone(id, name) {
+  _showPrompt(
+    'Reopen Milestone',
+    'Reopen "' + name + '"?',
+    'Reason for reopening...',
+    function(reason) {
+      if (!reason) { _showAlert('Error', 'Reason is required.'); return; }
+      fetch('/api/v2/milestones/' + id + '/reopen', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: reason}),
+      }).then(r => {
+        if (r.ok) location.reload();
+        else r.json().then(d => _showAlert('Cannot Reopen', d.detail || 'Error'));
+      });
+    }
+  );
+}
+
+// Add phase inline
+function addPhaseInline(milestoneId, btn) {
+  var container = btn.parentElement;
+  // Check if form already open
+  if (container.querySelector('.phase-inline-form')) return;
+  var form = document.createElement('div');
+  form.className = 'phase-inline-form';
+  form.style.cssText = 'display:flex;gap:var(--space-2);align-items:center;margin-top:var(--space-1);';
+  form.innerHTML = '<input type="text" placeholder="Phase name" style="flex:1;padding:var(--space-1) var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:transparent;color:var(--color-text);font-size:var(--text-xs);">' +
+    '<button class="btn btn-primary" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);">Create</button>' +
+    '<button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-2);">Cancel</button>';
+  container.appendChild(form);
+  var input = form.querySelector('input');
+  input.focus();
+  form.querySelector('.btn-primary').addEventListener('click', function() {
+    var name = input.value.trim();
+    if (!name) return;
+    fetch('/api/v2/projects/{{ project.slug }}/phases', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, milestone_id: milestoneId, sort_order: 99}),
+    }).then(r => { if (r.ok) location.reload(); else r.json().then(d => vfToast(d.detail || 'Error')); });
+  });
+  form.querySelector('.btn-ghost').addEventListener('click', function() { form.remove(); });
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') form.querySelector('.btn-primary').click();
+    if (e.key === 'Escape') form.remove();
+  });
+}
+
+// Create milestone
+function createMilestone() {
+  var name = document.getElementById('msName').value.trim();
+  var label = document.getElementById('msLabel').value.trim();
+  if (!name) return;
+  fetch('/api/v2/projects/{{ project.slug }}/milestones', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name, label: label || name.substring(0,3).toUpperCase(), sort_order: 99}),
+  }).then(r => {
+    if (r.ok) { location.reload(); }
+    else { r.json().then(d => vfToast(d.detail || 'Error')); }
+  });
+}
+
+// Wire Gantt task bar clicks to open drawer in-place
+document.querySelectorAll('.vf-gantt-bar').forEach(function(bar) {
+  bar.addEventListener('click', function(e) {
+    e.preventDefault();
+    var href = bar.getAttribute('href') || '';
+    var match = href.match(/open=([a-zA-Z0-9-]+)/);
+    if (match) {
+      openDrawer(match[1], null);
+    }
+  });
+});
+</script>
+
+{# VF-305: global task search pop-up. Ctrl/Cmd+K. #}
+{% include "ui/_search_popup.html" %}
+{% endblock %}

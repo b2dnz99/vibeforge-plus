@@ -1,0 +1,101 @@
+# VibeForge+ Caddy reverse proxy config.
+#
+# Replaces the previous nginx layer (VF-246 decision — spike proved Caddy can
+# reach feature parity with half the lines and a real automatic-TLS story).
+# The old nginx config is archived under ops/archive/nginx-2026-04-22/ for
+# reference during the transition.
+#
+# Hostname is parameterised via the VIBEFORGE_HOSTNAME env var (same var that
+# forgejo + vaultwarden already consume), so the same file serves DEV / UAT /
+# PROD with no changes — each env's .env supplies its own hostname.
+#
+# Caddy auto-binds :80 for the HTTPS redirect when a :443 site exists, so we
+# don't need an explicit :80 server block like nginx had.
+
+{
+    # Admin API — exposed on 0.0.0.0 inside the container. The compose file
+    # maps only 127.0.0.1:2019 on the host, so public traffic stays blocked.
+    admin 0.0.0.0:2019
+
+    # Prometheus metrics — Health container polls /metrics at :2019 for the
+    # proxy panel (replaces nginx stub_status). Enabling metrics here is the
+    # Caddy equivalent of nginx's `stub_status;` directive.
+    servers {
+        metrics
+    }
+
+    log {
+        output stdout
+        format console
+        level  INFO
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Public site — serves {hostname}:443 (and redirects :80 → :443 automatically).
+# Cert is the wildcard PEM/KEY currently shipped via ops/certs/. Mode 4 (Caddy
+# Internal CA) and ACME modes are available in the Caddyfile surface but not
+# activated here — see proposal PROXY-ADMIN-UX-4-TICKET-SPLIT §9 for the
+# wizard-driven mode picker that will manage this long term.
+# ---------------------------------------------------------------------------
+{$VIBEFORGE_HOSTNAME}:443 {
+    tls /certs/fullchain.pem /certs/privkey.pem
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        Referrer-Policy           "no-referrer-when-downgrade"
+    }
+
+    # /api/v2/projects/* — SSE route. flush_interval -1 disables buffering so
+    # server-sent events stream in real time (nginx equivalent was proxy_buffering
+    # off + proxy_cache off + long read timeout + chunked_transfer_encoding off).
+    handle /api/v2/projects/* {
+        reverse_proxy app:8000 {
+            flush_interval -1
+            transport http {
+                read_timeout 300s
+            }
+        }
+    }
+
+    # /health-dashboard/* — strip prefix (nginx used trailing-slash proxy_pass).
+    handle /health-dashboard/* {
+        uri strip_prefix /health-dashboard
+        reverse_proxy health:9090
+    }
+
+    # /api/health/* — preserve prefix (nginx kept /api/health/ upstream).
+    handle /api/health/* {
+        reverse_proxy health:9090
+    }
+
+    # /git/* — Forgejo. Strip prefix + large bodies + long timeouts for push.
+    handle /git/* {
+        uri strip_prefix /git
+        reverse_proxy forgejo:3000 {
+            transport http {
+                read_timeout  600s
+                write_timeout 600s
+            }
+        }
+        request_body {
+            max_size 512MB
+        }
+    }
+
+    # /vault/* — Vaultwarden. Preserve prefix (nginx had no trailing slash).
+    # WebSocket upgrade handled automatically by reverse_proxy.
+    handle /vault/* {
+        reverse_proxy vaultwarden:80
+        request_body {
+            max_size 128MB
+        }
+    }
+
+    # Catch-all — main VibeForge+ app (board, admin, health-api, etc.).
+    handle {
+        reverse_proxy app:8000
+    }
+}

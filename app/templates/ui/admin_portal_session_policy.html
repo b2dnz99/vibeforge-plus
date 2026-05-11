@@ -1,0 +1,262 @@
+{% extends "ui/admin_base.html" %}
+{# VF-341 §5.2 — Session Policy form (the 6 knobs).
+   Sits in Configuration sidebar directly below Certificates per PK directive.
+   Pure form + Save. Validates client-side against bounds + slide<=cap;
+   server is the truth (admin_portal:portal_api_policy_set re-validates).
+   See 0-MD/proposed/SESSION-LIFECYCLE-PROPOSAL.md §3 for the knob defaults
+   + bounds + rationale. #}
+{% block title %}Configuration · Session policy — VibeForge+{% endblock %}
+
+{% block extra_css %}
+  /* admin_base wraps the extra_css block inside style tag — raw CSS only here, no style wrappers. */
+  .asp-form { max-width: 720px; }
+  .asp-panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+  .asp-panel-title { font-family: var(--mono); font-size: 0.62rem; color: var(--violet); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 14px; }
+  .asp-knob { display: grid; grid-template-columns: 220px 110px 1fr; gap: 12px 14px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .asp-knob:last-child { border-bottom: none; }
+  .asp-label { font-size: 0.82rem; color: var(--text); }
+  .asp-bounds { font-family: var(--mono); font-size: 0.6rem; color: var(--text-muted); }
+  .asp-input {
+    width: 100%; box-sizing: border-box;
+    background: var(--bg-panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 9px; font-family: var(--mono); font-size: 0.85rem; text-align: right;
+  }
+  .asp-input:focus { border-color: var(--violet); outline: none; }
+  .asp-help { font-size: 0.7rem; color: var(--text-muted); }
+  .asp-footer { display: flex; gap: 10px; justify-content: flex-end; padding-top: 10px; }
+  .asp-btn {
+    font-family: var(--mono); font-size: 0.72rem; padding: 8px 16px;
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+    border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .asp-btn.primary { background: var(--violet); border-color: var(--violet); color: #fff; }
+  .asp-btn.primary:hover { filter: brightness(1.1); }
+  .asp-btn:hover:not(.primary) { border-color: var(--violet); color: var(--violet); }
+  .asp-status { font-family: var(--mono); font-size: 0.7rem; color: var(--text-muted); margin-right: auto; align-self: center; }
+  .asp-status.ok { color: #6ee7b7; }
+  .asp-status.error { color: #fca5a5; }
+
+  /* VF-382: Project wizard expiry — discrete-button slider style.
+     Pattern adapted from drift-window slider in admin_portal_agent_telemetry.html. */
+  .asp-pw-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; }
+  .asp-pw-row .asp-help { flex-basis: 100%; margin-top: 2px; }
+  .asp-pw-btn {
+    font-family: var(--mono); font-size: 0.7rem; padding: 6px 12px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+    border-radius: 5px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em;
+    transition: all 0.15s;
+  }
+  .asp-pw-btn:hover:not(.active) { border-color: var(--violet); color: var(--violet); }
+  .asp-pw-btn.active { background: rgba(167,139,250,0.18); color: var(--violet); border-color: var(--violet); }
+  .asp-pw-status { font-family: var(--mono); font-size: 0.65rem; color: var(--text-muted); margin-left: auto; }
+  .asp-pw-status.ok { color: #6ee7b7; }
+  .asp-pw-status.error { color: #fca5a5; }
+{% endblock %}
+
+{% block content %}
+<div style="padding: 14px 0;">
+  <div class="ap-crumb"><span>Admin</span> &rsaquo; Configuration &rsaquo; Session policy</div>
+  <h1 class="ap-ws-title">Session policy</h1>
+  <div class="ap-ws-subtitle">
+    Six operator-tunable knobs governing session + token lifetime. Changes take effect on next session creation / next heartbeat / next gate firing &mdash; no restart needed.
+  </div>
+
+  <form class="asp-form" id="aspForm" onsubmit="event.preventDefault(); aspSave();" style="margin-top: 18px;">
+    <div class="asp-panel">
+      <div class="asp-panel-title">// SESSION LIFECYCLE</div>
+
+      <div class="asp-knob">
+        <label class="asp-label" for="kSlide">Slide window <span class="asp-bounds" id="bSlide"></span></label>
+        <input class="asp-input" type="number" id="kSlide" name="slide_window_hours" min="1" max="168" />
+        <div class="asp-help">Heartbeat extends <code>expires_at</code> by this many <b>hours</b> on each tab-active ping. Default 24h.</div>
+      </div>
+
+      <div class="asp-knob">
+        <label class="asp-label" for="kCap">Absolute cap <span class="asp-bounds" id="bCap"></span></label>
+        <input class="asp-input" type="number" id="kCap" name="absolute_cap_days" min="1" max="30" />
+        <div class="asp-help">Hard ceiling from <code>created_at</code> regardless of slide, in <b>days</b>. Default 7d. Constraint: slide &le; cap.</div>
+      </div>
+
+      <div class="asp-knob">
+        <label class="asp-label" for="kElev">Elevation TTL <span class="asp-bounds" id="bElev"></span></label>
+        <input class="asp-input" type="number" id="kElev" name="elevation_ttl_minutes" min="5" max="60" />
+        <div class="asp-help">SA + SU expire together at this many <b>minutes</b>. Default 15m. One knob &mdash; both cookies share the value (die-together rule per &sect;3.1).</div>
+      </div>
+
+      <div class="asp-knob">
+        <label class="asp-label" for="kCap2">Concurrent cap <span class="asp-bounds" id="bCap2"></span></label>
+        <input class="asp-input" type="number" id="kCap2" name="concurrent_cap" min="1" max="10" />
+        <div class="asp-help">Active sessions per <b>(user, type)</b>. Oldest auto-revoked when exceeded. Default 5.</div>
+      </div>
+    </div>
+
+    <div class="asp-panel">
+      <div class="asp-panel-title">// AGENT TOKENS</div>
+
+      <div class="asp-knob">
+        <label class="asp-label" for="kTtl">Token TTL <span class="asp-bounds" id="bTtl"></span></label>
+        <input class="asp-input" type="number" id="kTtl" name="token_ttl_days" min="7" max="365" />
+        <div class="asp-help">New tokens get <code>expires_at = now + N <b>days</b></code>. Default 90d (matches Let's Encrypt). Eternal tokens are an explicit per-token toggle &mdash; see Agents workspace.</div>
+      </div>
+
+      <div class="asp-knob">
+        <label class="asp-label" for="kStale">Auto-revoke stale <span class="asp-bounds" id="bStale"></span></label>
+        <input class="asp-input" type="number" id="kStale" name="auto_revoke_stale_days" min="0" max="180" />
+        <div class="asp-help">Sessions inactive for this many <b>days</b> get auto-revoked on next workspace render. Default 30d. <b>Set 0 to disable.</b> Tokens are NOT subject to this sweep (per &sect;3.5).</div>
+      </div>
+    </div>
+
+    <div class="asp-panel">
+      <div class="asp-panel-title">// FORENSIC RETENTION</div>
+      <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.5;">
+        Soft-delete via <code>revoked_at</code> column &mdash; revoked rows preserved indefinitely for IP / user-agent / actor forensic data. <b>No automatic deletion in v1</b>; a one-line cron purges &gt;180d-revoked rows when the table grows uncomfortable (years out at this scale).
+      </div>
+    </div>
+
+    {# VF-382: Project wizard expiry (operator-tunable post-completion fade window
+       for the proper-onboard-wizard surfaces). PK directive 2026-05-08 — lives here
+       under session-policy because it's a session/lifecycle concern, not a drift one. #}
+    <div class="asp-panel">
+      <div class="asp-panel-title">// PROJECT WIZARD</div>
+      <div class="asp-knob" style="grid-template-columns: 220px 1fr; padding-bottom: 0; border-bottom: none;">
+        <label class="asp-label">Wizard expiry</label>
+        <div class="asp-pw-row" id="pwExpiryRow">
+          <button type="button" class="asp-pw-btn" data-secs="900"   onclick="setWizardExpiry(900)">15 min</button>
+          <button type="button" class="asp-pw-btn" data-secs="3600"  onclick="setWizardExpiry(3600)">1 h</button>
+          <button type="button" class="asp-pw-btn" data-secs="21600" onclick="setWizardExpiry(21600)">6 h</button>
+          <button type="button" class="asp-pw-btn" data-secs="43200" onclick="setWizardExpiry(43200)">12 h</button>
+          <button type="button" class="asp-pw-btn" data-secs="64800" onclick="setWizardExpiry(64800)">18 h</button>
+          <button type="button" class="asp-pw-btn" data-secs="86400" onclick="setWizardExpiry(86400)">24 h</button>
+          <span class="asp-pw-status" id="pwExpiryStatus"></span>
+          <div class="asp-help">After onboard completes, how long the wizard surfaces stay live before retiring (drawer <em>Resume Onboarding</em> link, <code>/ui/onboard/{slug}</code> resume render). Default 24 h. Same window applies whether the close-ceremony has stamped or not — both retire after this duration. Live: next render reads from SystemSetting.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="asp-footer">
+      <span class="asp-status" id="aspStatus"></span>
+      <button class="asp-btn" type="button" onclick="aspResetDefaults()">Reset to defaults</button>
+      <button class="asp-btn primary" type="submit">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  let _aspBounds = {};
+  let _aspDefaults = {};
+
+  async function aspLoad() {
+    const r = await fetch('/admin/portal/api/policy');
+    if (!r.ok) { aspStatus('Load failed (HTTP ' + r.status + ')', 'error'); return; }
+    const data = await r.json();
+    _aspBounds = data.bounds || {};
+    _aspDefaults = data.defaults || {};
+    const v = data.values || {};
+    document.getElementById('kSlide').value = v.slide_window_hours;
+    document.getElementById('kCap').value = v.absolute_cap_days;
+    document.getElementById('kElev').value = v.elevation_ttl_minutes;
+    document.getElementById('kCap2').value = v.concurrent_cap;
+    document.getElementById('kTtl').value = v.token_ttl_days;
+    document.getElementById('kStale').value = v.auto_revoke_stale_days;
+    // Annotate bounds inline (small UI affordance).
+    const b = (k) => '[' + _aspBounds[k][0] + ' &ndash; ' + _aspBounds[k][1] + ']';
+    document.getElementById('bSlide').innerHTML = b('slide_window_hours');
+    document.getElementById('bCap').innerHTML   = b('absolute_cap_days');
+    document.getElementById('bElev').innerHTML  = b('elevation_ttl_minutes');
+    document.getElementById('bCap2').innerHTML  = b('concurrent_cap');
+    document.getElementById('bTtl').innerHTML   = b('token_ttl_days');
+    document.getElementById('bStale').innerHTML = b('auto_revoke_stale_days');
+  }
+
+  function aspStatus(msg, cls) {
+    const el = document.getElementById('aspStatus');
+    el.textContent = msg;
+    el.className = 'asp-status ' + (cls || '');
+    if (cls === 'ok') setTimeout(() => { if (el.textContent === msg) { el.textContent = ''; el.className = 'asp-status'; } }, 4000);
+  }
+
+  function aspResetDefaults() {
+    document.getElementById('kSlide').value = _aspDefaults.slide_window_hours;
+    document.getElementById('kCap').value = _aspDefaults.absolute_cap_days;
+    document.getElementById('kElev').value = _aspDefaults.elevation_ttl_minutes;
+    document.getElementById('kCap2').value = _aspDefaults.concurrent_cap;
+    document.getElementById('kTtl').value = _aspDefaults.token_ttl_days;
+    document.getElementById('kStale').value = _aspDefaults.auto_revoke_stale_days;
+    aspStatus('Reset to defaults — click Save to persist.', '');
+  }
+
+  async function aspSave() {
+    aspStatus('Saving...', '');
+    const body = {
+      slide_window_hours: parseInt(document.getElementById('kSlide').value),
+      absolute_cap_days: parseInt(document.getElementById('kCap').value),
+      elevation_ttl_minutes: parseInt(document.getElementById('kElev').value),
+      concurrent_cap: parseInt(document.getElementById('kCap2').value),
+      token_ttl_days: parseInt(document.getElementById('kTtl').value),
+      auto_revoke_stale_days: parseInt(document.getElementById('kStale').value),
+    };
+    // Client-side: slide<=cap (mirrors server constraint per §3).
+    if (body.slide_window_hours > body.absolute_cap_days * 24) {
+      aspStatus(`Slide window (${body.slide_window_hours}h) exceeds absolute cap (${body.absolute_cap_days}d = ${body.absolute_cap_days*24}h).`, 'error');
+      return;
+    }
+    const r = await fetch('/admin/portal/api/policy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let txt = '';
+      try { const j = await r.json(); txt = j.detail || JSON.stringify(j); } catch(e) {}
+      aspStatus('Save failed (HTTP ' + r.status + '): ' + txt, 'error');
+      return;
+    }
+    aspStatus('Saved.', 'ok');
+  }
+
+  // VF-382: Project wizard expiry slider (mirrors loadWindow / setWindow pattern from agent-telemetry).
+  async function loadWizardExpiry() {
+    try {
+      const r = await fetch('/admin/api/experimental/wizard-expiry');
+      if (!r.ok) return;
+      const d = await r.json();
+      document.querySelectorAll('#pwExpiryRow .asp-pw-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.secs) === d.wizard_expiry_seconds);
+      });
+    } catch (e) { /* silent — page works without the slider state */ }
+  }
+
+  function pwStatus(msg, cls) {
+    const el = document.getElementById('pwExpiryStatus');
+    el.textContent = msg;
+    el.className = 'asp-pw-status ' + (cls || '');
+    if (cls === 'ok') setTimeout(() => { if (el.textContent === msg) { el.textContent = ''; el.className = 'asp-pw-status'; } }, 3000);
+  }
+
+  async function setWizardExpiry(secs) {
+    pwStatus('Saving…', '');
+    try {
+      const r = await fetch('/admin/api/experimental/wizard-expiry', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ seconds: secs }),
+      });
+      if (r.ok) {
+        await loadWizardExpiry();
+        const label = secs >= 3600 ? (secs/3600) + ' h' : (secs/60) + ' min';
+        pwStatus('Saved · ' + label, 'ok');
+      } else {
+        let txt = '';
+        try { const j = await r.json(); txt = j.detail || JSON.stringify(j); } catch(e) {}
+        pwStatus('Save failed (HTTP ' + r.status + '): ' + txt, 'error');
+      }
+    } catch (e) {
+      pwStatus('Save failed: ' + (e.message || e), 'error');
+    }
+  }
+
+  aspLoad();
+  loadWizardExpiry();
+{% endblock %}

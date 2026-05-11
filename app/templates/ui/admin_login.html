@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<script>(function(){try{var p=JSON.parse(localStorage.getItem('vf-theme')||'{}');if(p.dark)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})()</script>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VibeForge+ — Admin Elevation</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(145deg,#1a0a2e,#0f172a);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem;color:#e2e8f0}
+  [data-theme="light"] body{background:linear-gradient(145deg,#f8fafc,#e2e8f0)}
+  [data-theme="light"] .login-card{background:rgba(255,255,255,0.95);border-color:rgba(239,68,68,0.15);box-shadow:0 8px 48px rgba(0,0,0,0.1)}
+  [data-theme="light"] .field input{background:rgba(248,250,252,0.8);border-color:rgba(239,68,68,0.15);color:#1e293b}
+  [data-theme="light"] .login-header h1{color:#dc2626}
+  [data-theme="light"] .login-header p{color:#94a3b8}
+  [data-theme="light"] .field label{color:#dc2626}
+  [data-theme="light"] .back-link{color:#94a3b8}
+
+  .login-card{width:100%;max-width:400px;background:rgba(15,23,42,0.92);backdrop-filter:blur(20px);border-radius:16px;box-shadow:0 8px 48px rgba(0,0,0,0.5),0 0 80px rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);overflow:hidden}
+
+  .topbar{height:3px;background:linear-gradient(90deg,transparent,#ef4444,#f59e0b,#ef4444,transparent)}
+
+  .login-header{padding:2rem 2rem 1rem;text-align:center}
+  .login-header h1{font-size:1.2rem;font-weight:700;color:#ef4444;margin-bottom:0.3rem}
+  .login-header p{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em}
+
+  .shield{width:48px;height:48px;margin:0 auto 1rem;display:flex;align-items:center;justify-content:center;font-size:1.5rem}
+
+  .login-body{padding:0 2rem 2rem}
+
+  .field{margin-bottom:1rem}
+  .field label{font-family:'JetBrains Mono',monospace;font-size:0.6rem;font-weight:500;text-transform:uppercase;letter-spacing:0.1em;color:#ef4444;display:block;margin-bottom:0.3rem}
+  .field input{width:100%;padding:0.6rem 0.75rem;border-radius:8px;border:1px solid rgba(239,68,68,0.2);background:rgba(15,23,42,0.6);font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#e2e8f0;outline:none;transition:border-color 0.15s,box-shadow 0.15s}
+  .field input:focus{border-color:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,0.15)}
+
+  .login-btn{width:100%;padding:0.65rem;border:none;border-radius:8px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;transition:all 0.2s;margin-top:0.5rem}
+  .login-btn:hover{box-shadow:0 4px 20px rgba(239,68,68,0.4)}
+  .login-btn:disabled{opacity:0.5;cursor:not-allowed}
+
+  .error-msg{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#ef4444;text-align:center;margin-top:0.75rem;min-height:1rem;display:none}
+  .error-msg.visible{display:block;background:rgba(239,68,68,0.08);padding:0.3rem;border-radius:6px}
+
+  .back-link{display:block;text-align:center;margin-top:1rem;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#475569;text-decoration:none}
+  .back-link:hover{color:#94a3b8}
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="topbar"></div>
+  {% set is_su_elevate = (mode is defined and mode == 'elevate') %}
+  <div class="login-header">
+    <div class="shield">&#128274;</div>
+    {% if is_su_elevate %}
+    <h1>Confirm to Enter Admin Mode</h1>
+    <p>// {{ current_user.display_name }} &middot; super user</p>
+    {% else %}
+    <h1>Admin Elevation</h1>
+    <p>// Super Admin credentials required</p>
+    {% endif %}
+  </div>
+  <div class="login-body">
+    <form id="saForm" onsubmit="{{ 'doSUElevate' if is_su_elevate else 'doSALogin' }}(event)">
+      <div class="field">
+        {% if is_su_elevate %}
+        <label for="saPass">// Your Password</label>
+        {% else %}
+        <label for="saPass">// Super Admin Password</label>
+        {% endif %}
+        <style>#saPass::-ms-reveal,#saPass::-webkit-credentials-auto-fill-button{display:none !important}</style>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <input type="password" id="saPass" placeholder="{{ 'Your password' if is_su_elevate else 'SA password' }}" autofocus required autocomplete="off" style="flex:1">
+          <button type="button" onclick="var e=document.getElementById('saPass');e.type=e.type==='password'?'text':'password';this.style.opacity=e.type==='text'?'1':'0.4'" style="background:none;border:none;cursor:pointer;font-size:1.3rem;color:#ef4444;opacity:0.4;transition:opacity 0.15s;flex-shrink:0;filter:drop-shadow(0 0 3px rgba(239,68,68,0.3))" title="Show/hide">&#128065;</button>
+        </div>
+      </div>
+      <button type="submit" class="login-btn" id="saBtn">{{ 'Enter Admin Mode' if is_su_elevate else 'Elevate' }}</button>
+    </form>
+    <div class="error-msg" id="saError"></div>
+    {% if is_su_elevate %}
+    <p style="font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:#64748b;margin-top:0.75rem;text-align:center;line-height:1.4">
+      Admin mode lasts 15 min of inactivity.<br>
+      Actions audit as you, not as SA.
+    </p>
+    {% else %}
+    <!-- VF-317: SA break-glass recovery hint, moved here from /ui/login footer -->
+    <p style="font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:#64748b;margin-top:0.75rem;text-align:center;line-height:1.5">
+      Super Admin locked out? Server access required:<br>
+      <code style="color:#ef4444;font-size:0.52rem">docker exec vibeforge-app-1 python scripts/reset_sa_password.py</code>
+    </p>
+    {% endif %}
+    <a href="/ui/" class="back-link">&larr; Return to board</a>
+  </div>
+</div>
+
+<script>
+function doSALogin(e) {
+  e.preventDefault();
+  var btn = document.getElementById('saBtn');
+  var err = document.getElementById('saError');
+  btn.disabled = true;
+  btn.textContent = 'Elevating...';
+  err.classList.remove('visible');
+
+  fetch('/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: document.getElementById('saPass').value }),
+  }).then(r => {
+    if (r.ok) {
+      window.location.href = vfReturnPath('/admin/');
+    } else {
+      return r.json().then(d => {
+        err.textContent = d.detail || 'Elevation failed';
+        err.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Elevate';
+      });
+    }
+  }).catch(() => {
+    err.textContent = 'Connection error';
+    err.classList.add('visible');
+    btn.disabled = false;
+    btn.textContent = 'Elevate';
+  });
+}
+
+// VF-328: read ?return= from URL and validate. Only same-origin /admin/* paths
+// are honoured to avoid open-redirect via crafted return= values.
+function vfReturnPath(fallback) {
+  try {
+    var ret = new URLSearchParams(window.location.search).get('return');
+    if (ret && ret.charAt(0) === '/' && ret.indexOf('//') !== 0 && ret.indexOf('/admin/') === 0) {
+      return ret;
+    }
+  } catch (e) { /* fall through */ }
+  return fallback;
+}
+
+// VF-264: SU self-elevation via /admin/elevate
+function doSUElevate(e) {
+  e.preventDefault();
+  var btn = document.getElementById('saBtn');
+  var err = document.getElementById('saError');
+  btn.disabled = true;
+  btn.textContent = 'Confirming...';
+  err.classList.remove('visible');
+
+  fetch('/admin/elevate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ password: document.getElementById('saPass').value }),
+  }).then(r => {
+    if (r.ok) {
+      window.location.href = vfReturnPath('/admin/');
+    } else {
+      return r.json().then(d => {
+        err.textContent = d.detail || 'Elevation failed';
+        err.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Enter Admin Mode';
+      });
+    }
+  }).catch(() => {
+    err.textContent = 'Connection error';
+    err.classList.add('visible');
+    btn.disabled = false;
+    btn.textContent = 'Enter Admin Mode';
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1693 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · System Health — VibeForge+{% endblock %}
+
+{% block extra_css %}
+/* ══════════════════════════════════════════════════════════════════════════
+   Admin Portal · Health Overview
+   This is a straight port of the Board's /ui/health page. The HTML + CSS + JS
+   structure is copied verbatim. Only the chrome differs:
+   - wrapped in admin_base.html (SA sidebar, SA topbar)
+   - .hcp-scope bridges admin portal CSS vars to Board CSS vars
+   - SA-plane endpoints under /admin/portal/api/health/*
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Give this page the full workspace width — health is dense, Board-sized.
+   admin_base.html caps at 1080px by default; !important to guarantee override. */
+body .ap-workspace { max-width: none !important; padding: 24px 32px; }
+.hcp-scope { width: 100%; }
+
+/* ── CSS variable bridge: admin portal → Board naming ── */
+.hcp-scope {
+  --color-surface:       var(--bg-panel);
+  --color-surface-sub:   var(--bg-panel-2);
+  --color-border:        var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text:          var(--text);
+  --color-text-muted:    var(--text-muted);
+  --color-text-subtle:   var(--text-dim);
+  --color-done:          var(--green);
+  --color-blocked:       var(--red);
+  --color-needs-review:  var(--amber);
+  --color-ready:         #38bdf8;
+  --color-priority-high: var(--red);
+  --hue: 258;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xs: 3px;
+  --text-xs: 0.8125rem;
+  --font-mono: var(--mono);
+  font-family: var(--sans);
+  color: var(--color-text);
+}
+
+/* ── Top-page header (replaces Board's topbar inside admin workspace) ── */
+.hcp-scope .hcp-page-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: var(--space-4); gap: var(--space-4); flex-wrap: wrap;
+}
+.hcp-scope .hcp-page-title {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: 22px; font-weight: 700;
+}
+.hcp-scope .hcp-page-actions {
+  display: flex; align-items: center; gap: var(--space-3);
+}
+
+/* ── mc-radar — pulsing indicator dot ── */
+.hcp-scope .mc-radar {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid hsl(var(--hue) 68% 55%);
+  animation: mc-radar-pulse 2s ease-out infinite;
+}
+@keyframes mc-radar-pulse {
+  0%  { box-shadow: 0 0 0 0 hsl(var(--hue) 68% 55% / 0.5); }
+  70% { box-shadow: 0 0 0 8px hsl(var(--hue) 68% 55% / 0); }
+  100%{ box-shadow: 0 0 0 0 hsl(var(--hue) 68% 55% / 0); }
+}
+
+/* ── mc-stat-card — used by top gauge cards ── */
+.hcp-scope .mc-stat-card {
+  flex: 1; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  position: relative; overflow: hidden;
+}
+.hcp-scope .mc-stat-label {
+  font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+.hcp-scope .mc-stat-value { font-size: 1.5rem; font-weight: 700; margin-top: 2px; }
+
+/* ── mc-dot-accent ── */
+.hcp-scope .mc-dot-accent {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: hsl(var(--hue) 68% 55%); flex-shrink: 0;
+}
+
+/* ── Status pill + live orb + range toggle ── */
+.hcp-scope .hcp-status-pill {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  padding: 3px 10px; border-radius: 99px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.hcp-scope .hcp-pill-ok    { background: rgba(79,209,139,0.15);  color: var(--color-done); }
+.hcp-scope .hcp-pill-warn  { background: rgba(232,184,74,0.15); color: var(--color-needs-review); }
+.hcp-scope .hcp-pill-error { background: rgba(232,106,106,0.15); color: var(--color-blocked); }
+.hcp-scope .hcp-live-orb {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  background: var(--color-done); box-shadow: 0 0 6px var(--color-done);
+  animation: hcp-orb-pulse 2s ease-in-out infinite;
+}
+.hcp-scope .hcp-live-orb.error {
+  background: var(--color-blocked); box-shadow: 0 0 6px var(--color-blocked);
+}
+@keyframes hcp-orb-pulse {
+  0%,100% { box-shadow: 0 0 4px var(--color-done); opacity: 0.7; }
+  50% { box-shadow: 0 0 10px var(--color-done), 0 0 20px rgba(79,209,139,0.3); opacity: 1; }
+}
+.hcp-scope .hcp-range-toggle { display: flex; gap: 2px; }
+.hcp-scope .hcp-range-btn {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 500;
+  padding: 3px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: transparent;
+  color: var(--color-text-muted); cursor: pointer; transition: all 0.15s;
+}
+.hcp-scope .hcp-range-btn.active {
+  background: hsl(var(--hue) 68% 55%); border-color: hsl(var(--hue) 68% 55%); color: #fff;
+}
+.hcp-scope .hcp-range-btn:hover:not(.active) {
+  border-color: hsl(var(--hue) 68% 55%); color: var(--color-text);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Board's health.html CSS — copied verbatim inside .hcp-scope
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Gauge cards row */
+.hcp-scope .hcp-gauges { display: flex; gap: var(--space-3); margin-bottom: var(--space-4); }
+.hcp-scope .hcp-gauges .mc-stat-card { flex: 1; }
+
+/* Main split layout */
+.hcp-scope .hcp-main-split {
+  display: flex; gap: var(--space-4); margin-bottom: var(--space-4);
+  align-items: flex-start;
+}
+.hcp-scope .hcp-graph-stack { flex: 0 0 55%; display: flex; flex-direction: column; gap: var(--space-3); }
+.hcp-scope .hcp-activity-col { flex: 1; min-width: 0; }
+
+/* Graph row — gauge + label + sparkline */
+.hcp-scope .hcp-graph-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+}
+.hcp-scope .hcp-graph-row-gauge { flex-shrink: 0; width: 64px; height: 64px; }
+.hcp-scope .hcp-graph-row-info { flex-shrink: 0; width: 80px; }
+.hcp-scope .hcp-graph-row-info-label {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text);
+}
+.hcp-scope .hcp-graph-row-info-sub {
+  font-family: var(--font-mono); font-size: 0.5625rem; color: var(--color-text-muted);
+  margin-top: 2px;
+}
+.hcp-scope .hcp-graph-row-canvas-wrap { flex: 1; min-width: 0; }
+.hcp-scope .hcp-graph-row-canvas {
+  width: 100%; height: 64px; border-radius: var(--radius-sm);
+  background: rgba(15,23,42,0.3); cursor: crosshair;
+}
+
+/* SVG radial gauge */
+.hcp-scope .hcp-radial-bg { fill: none; stroke: var(--color-border); stroke-width: 5; }
+.hcp-scope .hcp-radial-arc {
+  fill: none; stroke-width: 5; stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease;
+}
+.hcp-scope .hcp-radial-text {
+  font-family: var(--font-mono); font-weight: 700; font-size: 13px;
+  fill: var(--color-text); text-anchor: middle; dominant-baseline: central;
+}
+
+/* Activity feed */
+.hcp-scope .hcp-activity-panel {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.hcp-scope .hcp-activity-title {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted);
+  padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-2);
+}
+.hcp-scope .hcp-activity-list {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+}
+.hcp-scope .hcp-activity-empty {
+  font-family: var(--font-mono); font-size: 0.6875rem;
+  color: var(--color-text-subtle); text-align: center;
+  padding: var(--space-5) 0;
+}
+.hcp-scope .hcp-activity-row {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: 4px 0; border-bottom: 1px solid rgba(148,163,184,0.06);
+  font-size: 0.6875rem;
+}
+.hcp-scope .hcp-activity-row:last-child { border-bottom: none; }
+.hcp-scope .hcp-activity-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px;
+}
+.hcp-scope .hcp-activity-time {
+  font-family: var(--font-mono); font-size: 0.5625rem;
+  color: var(--color-text-subtle); flex-shrink: 0; width: 50px;
+}
+.hcp-scope .hcp-activity-msg {
+  font-family: var(--font-mono); font-size: 0.625rem;
+  color: var(--color-text-muted); flex: 1;
+}
+
+/* Detail row panels — 4 across */
+.hcp-scope .hcp-detail-row {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3); margin-bottom: var(--space-4);
+}
+.hcp-scope .hcp-panel {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+}
+.hcp-scope .hcp-panel-title {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted);
+  padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-2);
+}
+
+/* Container rows */
+.hcp-scope .hcp-crow {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1); border-bottom: 1px solid rgba(148,163,184,0.06);
+  cursor: pointer; transition: background 0.15s; border-radius: var(--radius-sm);
+}
+.hcp-scope .hcp-crow:last-child { border-bottom: none; }
+.hcp-scope .hcp-crow:hover { background: rgba(124,58,237,0.04); }
+.hcp-scope .hcp-cdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.hcp-scope .hcp-cdot-up { background: var(--color-done); box-shadow: 0 0 6px var(--color-done); }
+.hcp-scope .hcp-cdot-down { background: var(--color-blocked); }
+.hcp-scope .hcp-cname { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600; flex: 1; }
+.hcp-scope .hcp-cmeta { font-family: var(--font-mono); font-size: 0.625rem; color: var(--color-text-muted); }
+.hcp-scope .hcp-cmeta strong { color: var(--color-text); }
+.hcp-scope .hcp-cexpand {
+  padding: var(--space-1) 0 var(--space-2) calc(var(--space-2) + 18px);
+  border-bottom: 1px solid rgba(148,163,184,0.06);
+}
+
+/* Key-value detail rows */
+.hcp-scope .hcp-drow {
+  display: flex; justify-content: space-between; padding: 4px 0;
+  border-bottom: 1px solid rgba(148,163,184,0.06); font-size: 0.6875rem;
+}
+.hcp-scope .hcp-drow:last-child { border-bottom: none; }
+.hcp-scope .hcp-drow span { color: var(--color-text-muted); }
+.hcp-scope .hcp-drow strong { font-family: var(--font-mono); font-weight: 600; color: var(--color-text); }
+
+/* Error state */
+.hcp-scope .hcp-error {
+  background: rgba(232,106,106,0.05); border: 1px dashed rgba(232,106,106,0.3);
+  border-radius: var(--radius-md); padding: var(--space-3); text-align: center;
+}
+.hcp-scope .hcp-error-msg { font-size: var(--text-xs); color: var(--color-blocked); font-weight: 600; }
+.hcp-scope .hcp-error-sub { font-size: 0.6875rem; color: var(--color-text-muted); margin-top: 4px; }
+
+/* Alert rows */
+.hcp-scope .hcp-alert-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 4px 0; border-bottom: 1px solid rgba(148,163,184,0.06);
+  font-family: var(--font-mono); font-size: 0.625rem;
+}
+.hcp-scope .hcp-alert-row:last-child { border-bottom: none; }
+.hcp-scope .hcp-alert-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.hcp-scope .hcp-alert-label { flex: 1; color: var(--color-text-muted); }
+.hcp-scope .hcp-alert-value { font-weight: 600; }
+
+/* Quick metrics table */
+.hcp-scope .hcp-qm-table {
+  width: 100%; border-collapse: collapse;
+  font-family: var(--font-mono); font-size: 0.625rem;
+}
+.hcp-scope .hcp-qm-table th {
+  text-align: right; font-weight: 600; color: var(--color-text-muted);
+  padding: 3px 6px; border-bottom: 1px solid var(--color-border);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.hcp-scope .hcp-qm-table th:first-child { text-align: left; }
+.hcp-scope .hcp-qm-table td {
+  padding: 3px 6px; text-align: right;
+  border-bottom: 1px solid rgba(148,163,184,0.06);
+}
+.hcp-scope .hcp-qm-table td:first-child {
+  text-align: left; color: var(--color-text-muted); font-weight: 500;
+}
+
+/* Fleet row */
+.hcp-scope .hcp-fleet-row {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3); margin-bottom: var(--space-4);
+}
+.hcp-scope .hcp-fleet-row .hcp-panel { min-height: 200px; display: flex; flex-direction: column; }
+.hcp-scope .hcp-fleet-list { flex: 1; overflow-y: auto; max-height: 240px; }
+.hcp-scope .hcp-fleet-list::-webkit-scrollbar { width: 4px; }
+.hcp-scope .hcp-fleet-list::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
+
+.hcp-scope .hcp-srow {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1) 0; border-bottom: 1px solid rgba(148,163,184,0.06);
+  font-size: 0.6875rem;
+}
+.hcp-scope .hcp-srow:last-child { border-bottom: none; }
+.hcp-scope .hcp-savatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: hsl(var(--hue) 68% 55% / 0.15);
+  border: 1px solid hsl(var(--hue) 68% 55% / 0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 0.55rem; font-weight: 700;
+  color: hsl(var(--hue) 68% 55%); flex-shrink: 0;
+}
+.hcp-scope .hcp-srow-info { flex: 1; min-width: 0; }
+.hcp-scope .hcp-srow-name {
+  font-weight: 600; color: var(--color-text); font-size: 0.6875rem;
+  display: flex; align-items: center; gap: 0.3rem;
+}
+.hcp-scope .hcp-srow-meta {
+  font-family: var(--font-mono); font-size: 0.5625rem;
+  color: var(--color-text-muted); margin-top: 1px;
+}
+.hcp-scope .hcp-sa-tag {
+  font-family: var(--font-mono); font-size: 0.5rem; font-weight: 700;
+  color: var(--color-blocked); padding: 0 4px; border-radius: 2px;
+  background: rgba(232,106,106,0.1); border: 1px solid rgba(232,106,106,0.25);
+  text-transform: uppercase;
+}
+.hcp-scope .hcp-tab-badge {
+  font-family: var(--font-mono); font-size: 0.5rem; font-weight: 700;
+  color: var(--color-text-muted); padding: 0 4px; border-radius: 2px;
+  background: rgba(148,163,184,0.1); border: 1px solid rgba(148,163,184,0.2);
+}
+.hcp-scope .hcp-aicon {
+  width: 24px; height: 24px; border-radius: 5px;
+  background: rgba(124,58,237,0.15);
+  border: 1px solid rgba(124,58,237,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; flex-shrink: 0;
+}
+.hcp-scope .hcp-arow-name {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  color: var(--color-text); display: flex; align-items: center; gap: 0.3rem;
+}
+.hcp-scope .hcp-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-done); box-shadow: 0 0 4px var(--color-done);
+}
+.hcp-scope .hcp-status-dot-warn { background: var(--color-needs-review); box-shadow: 0 0 4px var(--color-needs-review); }
+.hcp-scope .hcp-status-dot-bad  { background: var(--color-blocked); box-shadow: 0 0 4px var(--color-blocked); }
+.hcp-scope .hcp-token-badge {
+  font-family: var(--font-mono); font-size: 0.5rem; font-weight: 600;
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(79,209,139,0.12); color: var(--color-done);
+}
+.hcp-scope .hcp-token-badge-warn { background: rgba(232,184,74,0.12); color: var(--color-needs-review); }
+.hcp-scope .hcp-token-badge-bad  { background: rgba(232,106,106,0.12); color: var(--color-blocked); }
+
+/* Stat-line */
+.hcp-scope .hcp-statline {
+  display: flex; justify-content: space-between;
+  font-size: 0.6875rem; padding: 4px 0;
+  border-bottom: 1px solid rgba(148,163,184,0.06);
+}
+.hcp-scope .hcp-statline:last-child { border-bottom: none; }
+.hcp-scope .hcp-statline span:first-child { color: var(--color-text-muted); }
+.hcp-scope .hcp-statline span:last-child {
+  font-family: var(--font-mono); color: var(--color-text); font-weight: 600;
+}
+
+@media (max-width: 1200px) {
+  .hcp-scope .hcp-fleet-row { grid-template-columns: repeat(2, 1fr); }
+  .hcp-scope .hcp-detail-row { grid-template-columns: repeat(2, 1fr); }
+  .hcp-scope .hcp-main-split { flex-direction: column; }
+  .hcp-scope .hcp-graph-stack, .hcp-scope .hcp-activity-col { flex: 1 1 auto; }
+}
+@media (max-width: 768px) {
+  .hcp-scope .hcp-fleet-row { grid-template-columns: 1fr; }
+  .hcp-scope .hcp-detail-row { grid-template-columns: 1fr; }
+  .hcp-scope .hcp-gauges { flex-wrap: wrap; }
+  .hcp-scope .hcp-gauges .mc-stat-card { flex: 1 1 45%; min-width: 140px; }
+  .hcp-scope .hcp-graph-row { flex-wrap: wrap; }
+}
+
+/* Job rows */
+.hcp-scope .hcp-job-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 4px 0; border-bottom: 1px solid rgba(148,163,184,0.06);
+  font-family: var(--font-mono); font-size: 0.625rem;
+}
+.hcp-scope .hcp-job-row:last-child { border-bottom: none; }
+.hcp-scope .hcp-job-name { flex: 1; font-weight: 600; color: var(--color-text); }
+.hcp-scope .hcp-job-sched { color: var(--color-text-muted); }
+.hcp-scope .hcp-job-src {
+  font-size: 0.5625rem; padding: 1px 5px; border-radius: 3px;
+  background: rgba(148,163,184,0.1); color: var(--color-text-subtle);
+}
+
+/* Network Topology */
+.hcp-scope .hcp-topology {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.hcp-scope .hcp-topo-title {
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.hcp-scope .hcp-topo-flow {
+  display: flex; align-items: center; gap: 0;
+  overflow-x: auto; padding: var(--space-2) 0;
+}
+.hcp-scope .hcp-topo-node {
+  background: var(--color-surface-sub); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+  text-align: center; min-width: 110px; position: relative; flex-shrink: 0;
+}
+.hcp-scope .hcp-topo-node-title {
+  font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 700;
+  color: var(--color-text); display: flex; align-items: center;
+  justify-content: center; gap: 4px;
+}
+.hcp-scope .hcp-topo-node-meta {
+  font-family: var(--font-mono); font-size: 0.5625rem;
+  color: var(--color-text-subtle); margin-top: 2px;
+}
+.hcp-scope .hcp-topo-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.hcp-scope .hcp-topo-dot-up { background: var(--color-done); box-shadow: 0 0 4px var(--color-done); }
+.hcp-scope .hcp-topo-dot-down { background: var(--color-blocked); }
+.hcp-scope .hcp-topo-dot-muted { background: var(--color-text-subtle); }
+
+.hcp-scope .hcp-topo-arrow {
+  display: flex; align-items: center; justify-content: center;
+  width: 48px; flex-shrink: 0; position: relative;
+}
+.hcp-scope .hcp-topo-arrow::before {
+  content: ''; display: block; width: 100%; height: 2px;
+  background: var(--color-border-strong);
+  animation: hcp-topo-pulse 2s ease-in-out infinite;
+}
+.hcp-scope .hcp-topo-arrow::after {
+  content: ''; position: absolute; right: 0; top: 50%;
+  transform: translateY(-50%);
+  border-left: 6px solid var(--color-border-strong);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+@keyframes hcp-topo-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.hcp-scope .hcp-topo-bridge {
+  border: 2px dashed var(--color-border); border-radius: var(--radius-lg);
+  padding: var(--space-3); position: relative; flex: 1; min-width: 0;
+}
+.hcp-scope .hcp-topo-bridge-label {
+  position: absolute; top: -9px; left: var(--space-3);
+  background: var(--color-surface); padding: 0 6px;
+  font-family: var(--font-mono); font-size: 0.5625rem;
+  color: var(--color-text-subtle); font-weight: 600;
+}
+.hcp-scope .hcp-topo-bridge-containers {
+  display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center;
+}
+.hcp-scope .hcp-topo-container {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2);
+  text-align: center; min-width: 90px;
+}
+.hcp-scope .hcp-topo-container-offline {
+  opacity: 0.5; border-style: dashed; border-color: var(--color-blocked);
+}
+.hcp-scope .hcp-topo-container-name {
+  font-family: var(--font-mono); font-size: 0.5625rem; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+}
+.hcp-scope .hcp-topo-container-port {
+  font-family: var(--font-mono); font-size: 0.5rem; color: var(--color-text-subtle);
+}
+.hcp-scope .hcp-topo-container-ip {
+  font-family: var(--font-mono); font-size: 0.5rem; color: var(--color-text-subtle);
+}
+
+.hcp-scope .hcp-topo-tls-badge {
+  display: inline-block; margin-top: 4px;
+  font-family: var(--font-mono); font-size: 0.5rem; font-weight: 600;
+  padding: 1px 6px; border-radius: 3px;
+  background: rgba(79,209,139,0.15); color: var(--color-done);
+}
+.hcp-scope .hcp-topo-tls-badge-warn  { background: rgba(232,184,74,0.15); color: var(--color-needs-review); }
+.hcp-scope .hcp-topo-tls-badge-error { background: rgba(232,106,106,0.15); color: var(--color-blocked); }
+
+.hcp-scope .hcp-chevron { display: inline-block; transition: transform 0.15s; }
+{% endblock %}
+
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; Health &rsaquo; System</div>
+
+<div class="hcp-scope">
+
+  {# ── Page header (in-workspace equivalent of Board's topbar) ── #}
+  <div class="hcp-page-header">
+    <div class="hcp-page-title">
+      <div class="mc-radar" id="hcRadar" style="border-color: var(--color-done);"></div>
+      <span style="color:var(--color-done);">System</span>
+      <span>Health</span>
+    </div>
+    <div class="hcp-page-actions">
+      <span class="hcp-status-pill" id="hcpStatus">Connecting...</span>
+      <span class="hcp-live-orb" id="hcpOrb"></span>
+      <div class="hcp-range-toggle">
+        <button class="hcp-range-btn active" onclick="setRange('live',this)">Live</button>
+        <button class="hcp-range-btn" onclick="setRange('1h',this)">1h</button>
+        <button class="hcp-range-btn" onclick="setRange('2h',this)">2h</button>
+        <button class="hcp-range-btn" onclick="setRange('6h',this)">6h</button>
+        <button class="hcp-range-btn" onclick="setRange('12h',this)">12h</button>
+        <button class="hcp-range-btn" onclick="setRange('24h',this)">24h</button>
+        <button class="hcp-range-btn" onclick="setRange('3d',this)">3d</button>
+        <button class="hcp-range-btn" onclick="setRange('7d',this)">7d</button>
+      </div>
+    </div>
+  </div>
+
+  {# ── Top gauge cards (5 across) ── #}
+  <div class="hcp-gauges" id="hcpGauges">
+    <div class="mc-stat-card"><div class="mc-stat-label" style="font-family:var(--font-mono);">Loading...</div></div>
+  </div>
+
+  {# ── Main split: Graph Stack (left 55%) | Activity Feed (right 45%) ── #}
+  <div class="hcp-main-split">
+
+    {# Left: Graph Stack — 5 rows #}
+    <div class="hcp-graph-stack">
+
+      {# CPU #}
+      <div class="hcp-graph-row">
+        <svg class="hcp-graph-row-gauge" id="gaugeCpu" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="26" class="hcp-radial-bg"/>
+          <circle cx="32" cy="32" r="26" class="hcp-radial-arc" id="arcCpu"
+            stroke="hsl(var(--hue) 68% 55%)"
+            stroke-dasharray="163.4" stroke-dashoffset="163.4"
+            transform="rotate(-90 32 32)"/>
+          <text x="32" y="32" class="hcp-radial-text" id="arcCpuText">--%</text>
+        </svg>
+        <div class="hcp-graph-row-info">
+          <div class="hcp-graph-row-info-label" style="color:hsl(var(--hue) 68% 55%);">CPU %</div>
+          <div class="hcp-graph-row-info-sub" id="cpuSub">-- cores</div>
+        </div>
+        <div class="hcp-graph-row-canvas-wrap">
+          <canvas class="hcp-graph-row-canvas" id="graphCpu"></canvas>
+        </div>
+      </div>
+
+      {# Memory #}
+      <div class="hcp-graph-row">
+        <svg class="hcp-graph-row-gauge" id="gaugeMem" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="26" class="hcp-radial-bg"/>
+          <circle cx="32" cy="32" r="26" class="hcp-radial-arc" id="arcMem"
+            stroke="var(--color-done)"
+            stroke-dasharray="163.4" stroke-dashoffset="163.4"
+            transform="rotate(-90 32 32)"/>
+          <text x="32" y="32" class="hcp-radial-text" id="arcMemText">--%</text>
+        </svg>
+        <div class="hcp-graph-row-info">
+          <div class="hcp-graph-row-info-label" style="color:var(--color-done);">Memory %</div>
+          <div class="hcp-graph-row-info-sub" id="memSub">-- GB</div>
+        </div>
+        <div class="hcp-graph-row-canvas-wrap">
+          <canvas class="hcp-graph-row-canvas" id="graphMem"></canvas>
+        </div>
+      </div>
+
+      {# Disk #}
+      <div class="hcp-graph-row">
+        <svg class="hcp-graph-row-gauge" id="gaugeDisk" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="26" class="hcp-radial-bg"/>
+          <circle cx="32" cy="32" r="26" class="hcp-radial-arc" id="arcDisk"
+            stroke="var(--color-needs-review)"
+            stroke-dasharray="163.4" stroke-dashoffset="163.4"
+            transform="rotate(-90 32 32)"/>
+          <text x="32" y="32" class="hcp-radial-text" id="arcDiskText">--%</text>
+        </svg>
+        <div class="hcp-graph-row-info">
+          <div class="hcp-graph-row-info-label" style="color:var(--color-needs-review);">Disk %</div>
+          <div class="hcp-graph-row-info-sub" id="diskSub">-- GB</div>
+        </div>
+        <div class="hcp-graph-row-canvas-wrap">
+          <canvas class="hcp-graph-row-canvas" id="graphDisk"></canvas>
+        </div>
+      </div>
+
+      {# Net I/O #}
+      <div class="hcp-graph-row">
+        <svg class="hcp-graph-row-gauge" id="gaugeNet" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="26" class="hcp-radial-bg"/>
+          <circle cx="32" cy="32" r="26" class="hcp-radial-arc" id="arcNet"
+            stroke="var(--color-ready)"
+            stroke-dasharray="163.4" stroke-dashoffset="163.4"
+            transform="rotate(-90 32 32)"/>
+          <text x="32" y="32" class="hcp-radial-text" id="arcNetText" style="font-size:10px;">--</text>
+        </svg>
+        <div class="hcp-graph-row-info">
+          <div class="hcp-graph-row-info-label" style="color:var(--color-ready);">Net I/O</div>
+          <div class="hcp-graph-row-info-sub" id="netSub">-- MB</div>
+        </div>
+        <div class="hcp-graph-row-canvas-wrap">
+          <canvas class="hcp-graph-row-canvas" id="graphNet"></canvas>
+        </div>
+      </div>
+
+      {# Req/s #}
+      <div class="hcp-graph-row">
+        <svg class="hcp-graph-row-gauge" id="gaugeReq" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="26" class="hcp-radial-bg"/>
+          <circle cx="32" cy="32" r="26" class="hcp-radial-arc" id="arcReq"
+            stroke="hsl(var(--hue) 68% 55%)"
+            stroke-dasharray="163.4" stroke-dashoffset="163.4"
+            transform="rotate(-90 32 32)"/>
+          <text x="32" y="32" class="hcp-radial-text" id="arcReqText" style="font-size:10px;">--</text>
+        </svg>
+        <div class="hcp-graph-row-info">
+          <div class="hcp-graph-row-info-label" style="color:hsl(var(--hue) 68% 55%);">Req/s</div>
+          <div class="hcp-graph-row-info-sub" id="reqSub">caddy</div>
+        </div>
+        <div class="hcp-graph-row-canvas-wrap">
+          <canvas class="hcp-graph-row-canvas" id="graphReq"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    {# Right: Activity Feed #}
+    <div class="hcp-activity-col">
+      <div class="hcp-activity-panel">
+        <div class="hcp-activity-title"><span style="color:var(--color-done);">&#9679;</span> Activity Feed</div>
+        <div class="hcp-activity-list" id="hcpActivityFeed">
+          <div class="hcp-activity-empty">Waiting for events...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Fleet row: Sessions | Agents | Auth | DB (4 across) ── #}
+  <div class="hcp-fleet-row">
+    <div class="hcp-panel">
+      <div class="hcp-panel-title" style="display:flex;justify-content:space-between;">
+        <span>&#128101; Live Sessions</span>
+        <span id="hcpFleetSessionsCount" style="color:var(--color-text-subtle);font-weight:500;">--</span>
+      </div>
+      <div class="hcp-fleet-list" id="hcpFleetSessions">
+        <div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div>
+      </div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title" style="display:flex;justify-content:space-between;">
+        <span>&#129302; Agent Fleet</span>
+        <span id="hcpFleetAgentsCount" style="color:var(--color-text-subtle);font-weight:500;">--</span>
+      </div>
+      <div class="hcp-fleet-list" id="hcpFleetAgents">
+        <div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div>
+      </div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title" style="display:flex;justify-content:space-between;">
+        <span>&#128272; Auth &amp; Security</span>
+        <span style="color:var(--color-text-subtle);font-weight:500;">24h</span>
+      </div>
+      <div id="hcpAuthStats">
+        <div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div>
+      </div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">&#128203; Database</div>
+      <div id="hcpDbStats">
+        <div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Detail Row 1: Infrastructure (4 across) ── #}
+  <div class="hcp-detail-row">
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">Docker Containers</div>
+      <div id="hcpContainers"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">PostgreSQL</div>
+      <div id="hcpPostgres"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">VM Resources</div>
+      <div id="hcpVM"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">Caddy</div>
+      <div id="hcpNginx"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+  </div>
+
+  {# ── Detail Row 2: Operations (4 across) ── #}
+  <div class="hcp-detail-row">
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">Alerts</div>
+      <div id="hcpAlerts"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">TLS &amp; Backup</div>
+      <div id="hcpTLS"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">Quick Metrics</div>
+      <div id="hcpQuickMetrics"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+
+    <div class="hcp-panel">
+      <div class="hcp-panel-title">Scheduled Jobs</div>
+      <div id="hcpJobs"><div style="color:var(--color-text-muted);font-size:var(--text-xs);">Loading...</div></div>
+    </div>
+  </div>
+
+  {# ── Network Topology (full width, bottom) ── #}
+  <div class="hcp-topology">
+    <div class="hcp-topo-title">
+      <span class="mc-dot-accent" style="background:var(--color-ready);"></span>
+      Network Topology
+    </div>
+    <div class="hcp-topo-flow" id="hcpTopology">
+      <div style="color:var(--color-text-muted);font-size:var(--text-xs);font-family:var(--font-mono);">Loading topology...</div>
+    </div>
+  </div>
+
+</div>{# /hcp-scope #}
+{% endblock %}
+
+{% block extra_js %}
+/* ══════════════════════════════════════════════════════════════════════════
+   Health page JS — copied verbatim from Board's /ui/health, with SA-plane
+   endpoints swapped to /admin/portal/api/health/*.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var _hcRange = 'live';
+var _hcPollInterval = null;
+var _hcHistoryInterval = null;
+var _hcData = null;
+var _hcHistory = null;
+var _MAX_EVENTS = 150;
+var _activityEvents = [];
+var _eventsLoaded = false;
+
+var CIRC = 163.4;
+
+function colorVal(pct) { return pct > 90 ? 'var(--color-blocked)' : pct > 75 ? 'var(--color-needs-review)' : 'var(--color-done)'; }
+function colorHex(pct) { return pct > 90 ? '#ef4444' : pct > 75 ? '#f59e0b' : '#10b981'; }
+
+function setRange(r, btn) {
+  _hcRange = r;
+  document.querySelectorAll('.hcp-range-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+
+  var pollRates = {live:1000, '1h':5000, '2h':5000, '6h':10000, '12h':10000, '24h':15000, '3d':30000, '7d':30000};
+  var rate = pollRates[r] || 10000;
+
+  if (_hcPollInterval) clearInterval(_hcPollInterval);
+  if (_hcHistoryInterval) clearInterval(_hcHistoryInterval);
+
+  pollHealth();
+  fetchHistory();
+
+  _hcPollInterval = setInterval(pollHealth, rate);
+  _hcHistoryInterval = setInterval(fetchHistory, rate);
+}
+
+function updateRadial(svgId, pct) {
+  var arc = document.getElementById('arc' + svgId);
+  var txt = document.getElementById('arc' + svgId + 'Text');
+  if (!arc) return;
+  var clamped = Math.max(0, Math.min(100, pct));
+  arc.setAttribute('stroke-dashoffset', String(CIRC * (1 - clamped / 100)));
+  if (txt) txt.textContent = Math.round(clamped) + '%';
+}
+
+function updateRadialRaw(svgId, pct, label) {
+  var arc = document.getElementById('arc' + svgId);
+  var txt = document.getElementById('arc' + svgId + 'Text');
+  if (!arc) return;
+  var clamped = Math.max(0, Math.min(100, pct));
+  arc.setAttribute('stroke-dashoffset', String(CIRC * (1 - clamped / 100)));
+  if (txt) txt.textContent = label;
+}
+
+var _expandedContainers = {};
+function toggleExpand(idx) {
+  var el = document.getElementById('hcp-cexp-' + idx);
+  if (!el) return;
+  var isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : '';
+  _expandedContainers[idx] = !isOpen;
+  var rows = document.querySelectorAll('.hcp-crow');
+  if (rows[idx]) {
+    var chev = rows[idx].querySelector('.hcp-chevron');
+    if (chev) chev.style.transform = !isOpen ? 'rotate(180deg)' : '';
+  }
+}
+function _restoreExpanded() {
+  Object.keys(_expandedContainers).forEach(function(idx) {
+    if (_expandedContainers[idx]) {
+      var el = document.getElementById('hcp-cexp-' + idx);
+      if (el) el.style.display = '';
+      var rows = document.querySelectorAll('.hcp-crow');
+      if (rows[idx]) {
+        var chev = rows[idx].querySelector('.hcp-chevron');
+        if (chev) chev.style.transform = 'rotate(180deg)';
+      }
+    }
+  });
+}
+
+function addEvent(level, msg) {
+  var now = new Date();
+  var timeStr;
+  try {
+    timeStr = new Intl.DateTimeFormat(window.VF_LOCALE || 'en-AU', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, timeZone: window.VF_TZ || 'Australia/Sydney'
+    }).format(now);
+  } catch(e) { timeStr = now.toLocaleTimeString(); }
+
+  _activityEvents.unshift({level: level, msg: msg, time: timeStr});
+  if (_activityEvents.length > _MAX_EVENTS) _activityEvents.length = _MAX_EVENTS;
+  renderActivityFeed();
+}
+
+function renderActivityFeed() {
+  var el = document.getElementById('hcpActivityFeed');
+  if (!el) return;
+  if (_activityEvents.length === 0) {
+    el.innerHTML = '<div class="hcp-activity-empty">Waiting for events...</div>';
+    return;
+  }
+  var h = '';
+  _activityEvents.forEach(function(ev) {
+    var dotColor = ev.level === 'ok' ? 'var(--color-done)' : ev.level === 'warn' ? 'var(--color-needs-review)' : 'var(--color-blocked)';
+    h += '<div class="hcp-activity-row">';
+    h += '<span class="hcp-activity-dot" style="background:' + dotColor + ';"></span>';
+    h += '<span class="hcp-activity-time">' + ev.time + '</span>';
+    h += '<span class="hcp-activity-msg">' + ev.msg + '</span>';
+    h += '</div>';
+  });
+  el.innerHTML = h;
+}
+
+function dr(l, v) { return '<div class="hcp-drow"><span>' + l + '</span><strong>' + v + '</strong></div>'; }
+
+var _prevOverallStatus = null;
+
+function _loadEvents() {
+  fetch('/api/health/events?limit=150')
+    .then(function(r) { return r.json(); })
+    .then(function(events) {
+      if (!Array.isArray(events)) return;
+      _activityEvents = events.map(function(e) {
+        var timeStr = e.time;
+        try {
+          var d = new Date(e.time);
+          timeStr = new Intl.DateTimeFormat(window.VF_LOCALE || 'en-AU', {
+            hour:'2-digit', minute:'2-digit', second:'2-digit',
+            hour12:false, timeZone: window.VF_TZ || 'Australia/Sydney'
+          }).format(d);
+        } catch(ex) {}
+        return {level: e.level, msg: e.msg, time: timeStr};
+      });
+      _eventsLoaded = true;
+      renderActivityFeed();
+    })
+    .catch(function() {});
+}
+
+function pollHealth() {
+  fetch('/api/health/full')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      _hcData = d;
+      renderHealth(d);
+    })
+    .catch(function() {
+      document.getElementById('hcpStatus').textContent = 'Disconnected';
+      document.getElementById('hcpStatus').className = 'hcp-status-pill hcp-pill-error';
+      document.getElementById('hcRadar').style.borderColor = 'var(--color-blocked)';
+      document.getElementById('hcpOrb').className = 'hcp-live-orb error';
+      addEvent('error', 'Lost connection to health API');
+    });
+}
+
+function renderHealth(d) {
+  var vm = d.vm || {};
+  var dk = d.docker || {};
+  var pg = d.postgres || {};
+  var nx = d.caddy || d.nginx || {};
+  var tls = d.tls || {};
+  var net = d.network || {};
+  var jobs = d.scheduled_jobs || {};
+  var errors = d.errors || [];
+
+  var statusEl = document.getElementById('hcpStatus');
+  var radarEl = document.getElementById('hcRadar');
+  var orbEl = document.getElementById('hcpOrb');
+  var curStatus;
+  if (errors.length > 0) {
+    statusEl.textContent = errors.length + ' Error' + (errors.length > 1 ? 's' : '');
+    statusEl.className = 'hcp-status-pill hcp-pill-error';
+    radarEl.style.borderColor = 'var(--color-blocked)';
+    orbEl.className = 'hcp-live-orb error';
+    curStatus = 'error';
+  } else if (vm.disk_percent > 90 || vm.cpu_percent > 90 || vm.memory_percent > 85) {
+    statusEl.textContent = 'Warning';
+    statusEl.className = 'hcp-status-pill hcp-pill-warn';
+    radarEl.style.borderColor = 'var(--color-needs-review)';
+    orbEl.className = 'hcp-live-orb';
+    curStatus = 'warn';
+  } else {
+    statusEl.textContent = 'All Systems Operational';
+    statusEl.className = 'hcp-status-pill hcp-pill-ok';
+    radarEl.style.borderColor = 'var(--color-done)';
+    orbEl.className = 'hcp-live-orb';
+    curStatus = 'ok';
+  }
+  _prevOverallStatus = curStatus;
+
+  /* Gauge cards */
+  var g = document.getElementById('hcpGauges');
+  function gaugeCard(label, value, sub, pct) {
+    var c = pct >= 0 ? colorVal(pct) : 'hsl(var(--hue) 68% 55%)';
+    return '<div class="mc-stat-card" style="border-top:2px solid ' + c + ';">' +
+      '<div class="mc-stat-label" style="font-family:var(--font-mono);">' + label + '</div>' +
+      '<div class="mc-stat-value" style="color:' + c + ';">' + value + '</div>' +
+      '<div style="font-family:var(--font-mono);font-size:0.5625rem;color:var(--color-text-muted);margin-top:2px;">' + sub + '</div>' +
+      (pct >= 0 ? '<div style="height:4px;background:rgba(100,116,139,0.2);border-radius:2px;overflow:hidden;margin-top:6px;"><div style="height:100%;border-radius:2px;width:' + pct + '%;background:' + c + ';transition:width 0.6s;"></div></div>' : '') +
+      '</div>';
+  }
+  g.innerHTML =
+    gaugeCard('Uptime', vm.uptime || '?', 'Since ' + (vm.boot_time ? new Date(vm.boot_time).toLocaleDateString() : '?'), -1) +
+    gaugeCard('CPU', (vm.cpu_percent || 0) + '%', (vm.cpu_count || '?') + ' cores', vm.cpu_percent || 0) +
+    gaugeCard('Memory', (vm.memory_used_gb || '?') + ' GB', 'of ' + (vm.memory_total_gb || '?') + ' GB (' + (vm.memory_percent || 0) + '%)', vm.memory_percent || 0) +
+    gaugeCard('Disk', (vm.disk_percent || 0) + '%', (vm.disk_used_gb || '?') + ' GB of ' + (vm.disk_total_gb || '?') + ' GB', vm.disk_percent || 0) +
+    gaugeCard('Containers', (dk.running || 0) + '/' + (dk.total || 0), dk.running === dk.total ? 'All running' : 'Some stopped', -1);
+
+  updateRadial('Cpu', vm.cpu_percent || 0);
+  updateRadial('Mem', vm.memory_percent || 0);
+  updateRadial('Disk', vm.disk_percent || 0);
+  document.getElementById('cpuSub').textContent = (vm.cpu_count || '?') + ' cores';
+  document.getElementById('memSub').textContent = (vm.memory_used_gb || '?') + ' / ' + (vm.memory_total_gb || '?') + ' GB';
+  document.getElementById('diskSub').textContent = (vm.disk_used_gb || '?') + ' / ' + (vm.disk_total_gb || '?') + ' GB';
+
+  var netRecvMb = (net.recv_mb || 0);
+  var netSentMb = (net.sent_mb || 0);
+  var netPct = Math.min(100, ((netRecvMb + netSentMb) / 100) * 100);
+  updateRadialRaw('Net', netPct, Math.round(netRecvMb) + 'M');
+  document.getElementById('netSub').textContent = 'In ' + netRecvMb + ' / Out ' + netSentMb + ' MB';
+
+  var reqPerSec = nx.req_per_sec || 0;
+  var reqPct = Math.min(100, (reqPerSec / 50) * 100);
+  updateRadialRaw('Req', reqPct, reqPerSec.toFixed(1));
+  document.getElementById('reqSub').textContent = 'caddy throughput';
+
+  /* Containers */
+  var ch = '';
+  if (dk.status === 'error') {
+    ch = '<div class="hcp-error"><div class="hcp-error-msg">Cannot connect to Docker</div><div class="hcp-error-sub">' + (dk.error || '') + '</div></div>';
+  } else {
+    (dk.containers || []).forEach(function(c, idx) {
+      var dot = c.status === 'running' ? 'hcp-cdot-up' : 'hcp-cdot-down';
+      ch += '<div class="hcp-crow" onclick="toggleExpand(' + idx + ')">';
+      ch += '<span class="hcp-cdot ' + dot + '"></span>';
+      ch += '<span class="hcp-cname">' + c.name + '</span>';
+      if (c.status === 'running') {
+        ch += '<span class="hcp-cmeta">CPU <strong>' + c.cpu_percent + '%</strong></span>';
+        ch += '<span class="hcp-cmeta">MEM <strong>' + c.memory_mb + ' MB</strong></span>';
+        ch += '<span class="hcp-cmeta">' + c.uptime + '</span>';
+      } else {
+        ch += '<span class="hcp-cmeta" style="color:var(--color-blocked);">' + c.status + '</span>';
+      }
+      ch += '<span class="hcp-chevron" style="font-size:0.5rem;color:var(--color-text-subtle);">&#9660;</span>';
+      ch += '</div>';
+      ch += '<div class="hcp-cexpand" id="hcp-cexp-' + idx + '" style="display:none;">';
+      ch += dr('Image', c.image || '?');
+      ch += dr('Ports', c.ports || 'none');
+      ch += dr('Container ID', c.id_short || '?');
+      ch += dr('Status', '<span style="color:' + (c.status === 'running' ? 'var(--color-done)' : 'var(--color-blocked)') + ';">' + c.status + '</span>');
+      if (c.rx_mb !== undefined) ch += dr('Net RX', c.rx_mb + ' MB');
+      if (c.tx_mb !== undefined) ch += dr('Net TX', c.tx_mb + ' MB');
+      ch += '</div>';
+    });
+  }
+  document.getElementById('hcpContainers').innerHTML = ch;
+  _restoreExpanded();
+
+  /* Postgres */
+  var ph = '';
+  if (pg.status === 'error') {
+    ph = '<div class="hcp-error"><div class="hcp-error-msg">Cannot connect to PostgreSQL</div><div class="hcp-error-sub">' + (pg.error || '') + '</div></div>';
+  } else {
+    ph = dr('Status', '<span style="color:var(--color-done);">&#9679; Connected</span>') +
+      dr('Database Size', pg.db_size || '?') +
+      dr('Connections', (pg.active_connections || 0) + ' / ' + (pg.max_connections || '?')) +
+      dr('Tables', pg.table_count || '?') +
+      dr('Rows', (pg.total_rows || 0).toLocaleString()) +
+      dr('Last Backup', pg.last_backup || '?') +
+      dr('Version', pg.version || '?');
+  }
+  document.getElementById('hcpPostgres').innerHTML = ph;
+
+  /* VM */
+  var vh = '';
+  if (vm.status === 'error') {
+    vh = '<div class="hcp-error"><div class="hcp-error-msg">VM stats unavailable</div></div>';
+  } else {
+    vh = dr('OS', vm.os || '?') +
+      dr('Hostname', vm.hostname || '?') +
+      dr('CPU', (vm.cpu_count || '?') + ' cores &middot; ' + (vm.cpu_model || '')) +
+      dr('RAM', (vm.memory_total_gb || '?') + ' GB') +
+      dr('Swap', (vm.swap_percent || 0) + '%') +
+      dr('Uptime', vm.uptime || '?');
+  }
+  document.getElementById('hcpVM').innerHTML = vh;
+
+  /* Caddy */
+  var nh = '';
+  if (nx.status === 'error') {
+    nh = '<div class="hcp-error"><div class="hcp-error-msg">Cannot reach Caddy</div><div class="hcp-error-sub">' + (nx.error || '') + '</div></div>';
+  } else {
+    nh = dr('Status', '<span style="color:var(--color-done);">&#9679; Connected</span>') +
+      dr('Active Connections', '<strong>' + (nx.active_connections || 0) + '</strong>') +
+      dr('Total Requests', (nx.total_requests || 0).toLocaleString()) +
+      dr('4xx / 5xx', '<strong style="color:' + ((nx.err_5xx || 0) > 0 ? 'var(--color-priority-high)' : 'var(--color-text)') + ';">' + (nx.err_4xx || 0).toLocaleString() + ' / ' + (nx.err_5xx || 0).toLocaleString() + '</strong>') +
+      dr('Upstreams Healthy', (nx.upstreams_healthy !== undefined ? nx.upstreams_healthy : '?'));
+    if (tls.status === 'ok') {
+      nh += dr('TLS Cert', tls.cn || '?');
+      nh += dr('Expires', (tls.not_after || '?') + (tls.days_remaining !== undefined ? ' (' + tls.days_remaining + 'd)' : ''));
+    }
+    var ups = (d.caddy_upstreams || {}).upstreams || [];
+    if (ups.length) {
+      nh += '<div class="hcp-drow"><span>Upstream Reachability</span><strong>' + ups.length + ' total</strong></div>';
+      ups.forEach(function(u) {
+        var dot = u.healthy
+          ? '<span style="color:var(--color-done);">&#9679;</span>'
+          : '<span style="color:var(--color-priority-high);">&#9679;</span>';
+        var tail = u.fails > 0 ? (' · <span style="color:var(--color-priority-high);">' + u.fails + ' fails</span>') : '';
+        nh += '<div class="hcp-drow" style="padding-left:var(--space-3);"><span>' + dot + ' ' + (u.address || '?') + '</span><strong>' + (u.num_requests || 0).toLocaleString() + ' req' + tail + '</strong></div>';
+      });
+    }
+  }
+  document.getElementById('hcpNginx').innerHTML = nh;
+
+  renderAlerts(d);
+  renderTlsBackup(tls, pg);
+  renderJobs(jobs);
+  renderTopology(d, dk, nx, tls);
+}
+
+function renderAlerts(d) {
+  var vm = d.vm || {};
+  var dk = d.docker || {};
+  var pg = d.postgres || {};
+  var tls = d.tls || {};
+  var el = document.getElementById('hcpAlerts');
+
+  function alertRow(label, isOk, isWarn) {
+    var color = isOk ? 'var(--color-done)' : isWarn ? 'var(--color-needs-review)' : 'var(--color-blocked)';
+    var status = isOk ? 'OK' : isWarn ? 'WARN' : 'CRIT';
+    return '<div class="hcp-alert-row">' +
+      '<span class="hcp-alert-dot" style="background:' + color + ';box-shadow:0 0 4px ' + color + ';"></span>' +
+      '<span class="hcp-alert-label">' + label + '</span>' +
+      '<span class="hcp-alert-value" style="color:' + color + ';">' + status + '</span></div>';
+  }
+
+  var cpu = vm.cpu_percent || 0;
+  var mem = vm.memory_percent || 0;
+  var disk = vm.disk_percent || 0;
+  var allUp = dk.running === dk.total && dk.total > 0;
+  var certDays = tls.days_remaining;
+  var certOk = certDays === undefined || certDays > 30;
+  var certWarn = certDays !== undefined && certDays <= 30 && certDays > 7;
+  var dbMax = parseInt(pg.max_connections || '100');
+  var dbConns = pg.active_connections || 0;
+  var dbPct = dbMax > 0 ? (dbConns / dbMax) * 100 : 0;
+
+  el.innerHTML =
+    alertRow('CPU > 90%', cpu <= 90, false) +
+    alertRow('Memory > 85%', mem <= 85, mem > 75 && mem <= 85) +
+    alertRow('Disk > 90%', disk <= 90, disk > 75 && disk <= 90) +
+    alertRow('Container down', allUp, false) +
+    alertRow('Cert < 30d', certOk, certWarn) +
+    alertRow('DB conns > 80%', dbPct <= 80, dbPct > 60 && dbPct <= 80);
+}
+
+function renderTlsBackup(tls, pg) {
+  var el = document.getElementById('hcpTLS');
+  var h = '';
+  if (tls.status === 'ok') {
+    var certColor = tls.cert_status === 'ok' ? 'var(--color-done)' :
+      tls.cert_status === 'warning' ? 'var(--color-needs-review)' : 'var(--color-blocked)';
+    h += dr('Cert Status', '<span style="color:' + certColor + ';">&#9679; ' + (tls.cert_status || '?') + '</span>');
+    h += dr('CN', tls.cn || '?');
+    h += dr('Issuer', tls.issuer_cn || '?');
+    h += dr('Expires', tls.not_after || '?');
+    h += dr('Days Left', tls.days_remaining !== undefined ? tls.days_remaining + 'd' : '?');
+    h += dr('Type', (tls.self_signed ? 'Self-signed' : 'CA-signed') + (tls.wildcard ? ' / Wildcard' : ''));
+  } else if (tls.status === 'none' || tls.status === 'no_tls') {
+    h += dr('Cert Status', '<span style="color:var(--color-text-subtle);">No TLS</span>');
+    h += dr('Note', tls.note || 'N/A');
+  } else {
+    h += '<div class="hcp-error"><div class="hcp-error-msg">TLS check failed</div><div class="hcp-error-sub">' + (tls.error || tls.note || '') + '</div></div>';
+  }
+  h += '<div style="border-top:1px solid var(--color-border);margin:var(--space-2) 0;"></div>';
+  h += dr('Last Backup', pg.last_backup || '?');
+  h += dr('Schedule', 'Daily (automated)');
+  el.innerHTML = h;
+}
+
+function renderQuickMetrics() {
+  var el = document.getElementById('hcpQuickMetrics');
+  if (!_hcHistory || !_hcData) {
+    el.innerHTML = '<div style="color:var(--color-text-muted);font-size:var(--text-xs);font-family:var(--font-mono);">Waiting for data...</div>';
+    return;
+  }
+  function calcStats(arr) {
+    var vals = (arr || []).filter(function(v) { return v !== null && v !== undefined; });
+    if (vals.length === 0) return {avg: '--', peak: '--'};
+    var sum = 0; var max = -Infinity;
+    for (var i = 0; i < vals.length; i++) { sum += vals[i]; if (vals[i] > max) max = vals[i]; }
+    return {avg: (sum / vals.length).toFixed(1), peak: max.toFixed(1)};
+  }
+  var vm = _hcData.vm || {};
+  var pg = _hcData.postgres || {};
+  var cpuS = calcStats(_hcHistory.cpu);
+  var memS = calcStats(_hcHistory.memory);
+  var diskS = calcStats(_hcHistory.disk);
+  var swapS = calcStats(_hcHistory.swap);
+  var dbS = calcStats(_hcHistory.db_connections);
+  var h = '<table class="hcp-qm-table">';
+  h += '<tr><th></th><th>Now</th><th>Avg</th><th>Peak</th></tr>';
+  h += '<tr><td>CPU</td><td>' + (vm.cpu_percent || 0) + '%</td><td>' + cpuS.avg + '%</td><td>' + cpuS.peak + '%</td></tr>';
+  h += '<tr><td>Memory</td><td>' + (vm.memory_percent || 0) + '%</td><td>' + memS.avg + '%</td><td>' + memS.peak + '%</td></tr>';
+  h += '<tr><td>Disk</td><td>' + (vm.disk_percent || 0) + '%</td><td>' + diskS.avg + '%</td><td>' + diskS.peak + '%</td></tr>';
+  h += '<tr><td>Swap</td><td>' + (vm.swap_percent || 0) + '%</td><td>' + swapS.avg + '%</td><td>' + swapS.peak + '%</td></tr>';
+  h += '<tr><td>DB Conns</td><td>' + (pg.active_connections || 0) + '</td><td>' + dbS.avg + '</td><td>' + dbS.peak + '</td></tr>';
+  h += '</table>';
+  el.innerHTML = h;
+}
+
+function renderJobs(jobsData) {
+  var el = document.getElementById('hcpJobs');
+  var jobs = jobsData.jobs || jobsData || [];
+  if (!Array.isArray(jobs)) jobs = [];
+  if (jobs.length === 0) {
+    el.innerHTML = '<div style="color:var(--color-text-muted);font-size:var(--text-xs);font-family:var(--font-mono);">No jobs discovered</div>';
+    return;
+  }
+  var h = '';
+  jobs.forEach(function(j) {
+    var dotColor = j.status === 'ok' ? 'var(--color-done)' : j.status === 'warn' ? 'var(--color-needs-review)' : 'var(--color-blocked)';
+    h += '<div class="hcp-job-row">';
+    h += '<span class="hcp-alert-dot" style="background:' + dotColor + ';"></span>';
+    h += '<span class="hcp-job-name">' + (j.name || '?') + '</span>';
+    h += '<span class="hcp-job-sched">' + (j.schedule || '?') + '</span>';
+    h += '<span class="hcp-job-src">' + (j.source || '?') + '</span>';
+    h += '</div>';
+  });
+  el.innerHTML = h;
+}
+
+function renderTopology(d, dk, nx, tls) {
+  var el = document.getElementById('hcpTopology');
+  var containers = dk.containers || [];
+  var networks = dk.networks || [];
+
+  var bridgeSubnet = '172.x.x.x/16', bridgeName = 'docker bridge', bridgeGateway = '';
+  for (var i = 0; i < networks.length; i++) {
+    if (networks[i].name && networks[i].subnet) {
+      bridgeSubnet = networks[i].subnet;
+      bridgeName = networks[i].name;
+      bridgeGateway = networks[i].gateway || '';
+      break;
+    }
+  }
+
+  var tlsBadge = '';
+  if (tls.status === 'ok') {
+    var badgeCls = tls.cert_status === 'ok' ? '' : tls.cert_status === 'warning' ? ' hcp-topo-tls-badge-warn' : ' hcp-topo-tls-badge-error';
+    var certInfo = (tls.cn || '?') + ' &middot; ' + (tls.days_remaining !== undefined ? tls.days_remaining + 'd' : '?');
+    var certType = (tls.wildcard ? 'Wildcard' : 'Standard') + (tls.self_signed ? ' &middot; Self-signed' : '');
+    tlsBadge = '<div class="hcp-topo-tls-badge' + badgeCls + '" title="' + (tls.issuer_cn || '') + '">';
+    tlsBadge += '<div style="font:600 7px var(--font-mono);text-transform:uppercase;letter-spacing:0.04em">&#x1F512; TLS</div>';
+    tlsBadge += '<div style="font:500 8px var(--font-mono);margin-top:1px">' + certInfo + '</div>';
+    tlsBadge += '<div style="font:400 6px var(--font-mono);color:var(--color-text-subtle);margin-top:1px">' + certType + '</div>';
+    tlsBadge += '</div>';
+  }
+
+  function getRole(c) {
+    var name = (c.name || '').toLowerCase();
+    var image = (c.image || '').toLowerCase();
+    if (name.includes('caddy') || image.includes('caddy') || name.includes('nginx') || image.includes('nginx')) return {role: 'Reverse Proxy', proto: 'HTTPS/TLS', icon: '&#9881;'};
+    if (name.includes('app') && !name.includes('health')) return {role: 'Application Server', proto: 'HTTP/REST', icon: '&#x1F4E6;'};
+    if (name.includes('health')) return {role: 'Health Monitor', proto: 'HTTP/REST', icon: '&#x1F4CA;'};
+    if (name.includes('db') || image.includes('postgres') || image.includes('mysql') || image.includes('mongo')) return {role: 'Database', proto: 'TCP/SQL', icon: '&#x1F418;'};
+    if (name.includes('redis') || image.includes('redis')) return {role: 'Cache', proto: 'TCP/RESP', icon: '&#x26A1;'};
+    if (name.includes('worker') || name.includes('celery')) return {role: 'Worker', proto: 'AMQP', icon: '&#x2699;'};
+    return {role: 'Service', proto: 'TCP', icon: '&#x1F4E6;'};
+  }
+
+  var h = '';
+  h += '<div style="display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:nowrap;padding:8px 0;">';
+
+  h += '<div class="hcp-topo-node" style="min-width:120px">';
+  h += '<div class="hcp-topo-node-title"><span class="hcp-topo-dot hcp-topo-dot-muted"></span> External Network</div>';
+  h += '<div class="hcp-topo-node-meta" style="margin-top:4px">WAN / LAN</div>';
+  var vmIp = (d.network && d.network.vm_ip) ? d.network.vm_ip : '?';
+  h += '<div style="font:400 7px var(--font-mono);color:var(--color-text-subtle);margin-top:2px">VM: ' + vmIp + '</div>';
+  h += '</div>';
+
+  h += '<div class="hcp-topo-arrow" title="HTTPS :443 / HTTP :80"></div>';
+
+  var nxDot = nx.status === 'error' ? 'hcp-topo-dot-down' : 'hcp-topo-dot-up';
+  h += '<div class="hcp-topo-node" style="min-width:130px">';
+  h += '<div class="hcp-topo-node-title"><span class="hcp-topo-dot ' + nxDot + '"></span> &#9881; Caddy</div>';
+  h += '<div style="font:400 7px var(--font-mono);color:var(--color-text-subtle);margin-top:2px">Reverse Proxy + TLS</div>';
+  h += '<div style="font:400 7px var(--font-mono);color:var(--color-text-subtle)">Active: <b>' + (nx.active_connections || 0) + '</b> &middot; Req: <b>' + ((nx.total_requests || 0)/1000).toFixed(1) + 'k</b></div>';
+  h += '<div style="font:600 7px var(--font-mono);color:hsl(var(--hue) 68% 55%);background:hsla(var(--hue),68%,55%,0.1);padding:1px 5px;border-radius:3px;display:inline-block;margin-top:3px">:443 / :80</div>';
+  if (tlsBadge) h += tlsBadge;
+  h += '</div>';
+
+  h += '<div class="hcp-topo-arrow" title="reverse_proxy to containers"></div>';
+
+  h += '<div class="hcp-topo-bridge" style="flex:1">';
+  h += '<div class="hcp-topo-bridge-label">' + bridgeName + ' &mdash; ' + bridgeSubnet;
+  if (bridgeGateway) h += ' (gw: ' + bridgeGateway + ')';
+  h += '</div>';
+  h += '<div class="hcp-topo-bridge-containers" style="flex-direction:column;gap:6px">';
+
+  containers.forEach(function(c) {
+    var isUp = c.status === 'running';
+    var cls = isUp ? '' : ' hcp-topo-container-offline';
+    var dot = isUp ? 'hcp-topo-dot-up' : 'hcp-topo-dot-down';
+    var role = getRole(c);
+    var ip = '';
+    if (c.networks) {
+      var keys = Object.keys(c.networks);
+      if (keys.length > 0) ip = c.networks[keys[0]] || '';
+    }
+    h += '<div class="hcp-topo-container' + cls + '" style="display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:var(--radius-xs);border:1px solid var(--color-border);background:var(--color-surface)">';
+    h += '<div style="display:flex;align-items:center;gap:6px;min-width:180px">';
+    h += '<span class="hcp-topo-dot ' + dot + '"></span>';
+    h += '<span style="font-size:12px">' + role.icon + '</span>';
+    h += '<div>';
+    h += '<div class="hcp-topo-container-name" style="font-size:10px">' + c.name + '</div>';
+    h += '<div style="font:400 7px var(--font-mono);color:var(--color-text-subtle)">' + role.role + '</div>';
+    h += '</div>';
+    h += '</div>';
+    if (c.ports && c.ports !== 'none') {
+      h += '<div class="hcp-topo-container-port" style="min-width:80px">' + c.ports + '</div>';
+    }
+    if (ip) {
+      h += '<div class="hcp-topo-container-ip" style="min-width:90px">' + ip + '</div>';
+    }
+    h += '<div style="font:500 7px var(--font-mono);color:hsl(var(--hue) 68% 55%);background:hsla(var(--hue),68%,55%,0.08);padding:1px 5px;border-radius:3px;min-width:60px;text-align:center">' + role.proto + '</div>';
+    if (isUp && c.cpu_percent !== undefined) {
+      h += '<div style="font:400 8px var(--font-mono);color:var(--color-text-subtle);min-width:120px;text-align:right">';
+      h += 'CPU <b>' + c.cpu_percent + '%</b> &middot; MEM <b>' + c.memory_mb + 'MB</b>';
+      h += '</div>';
+    } else if (!isUp) {
+      h += '<div style="font:600 8px var(--font-mono);color:var(--color-blocked);min-width:120px;text-align:right">OFFLINE</div>';
+    }
+    h += '</div>';
+  });
+
+  h += '</div></div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+/* ── Sparkline ── */
+function hexToRgba(hex, alpha) {
+  var r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+}
+var _graphPulsePhase = 0;
+setInterval(function() { _graphPulsePhase = (_graphPulsePhase + 1) % 60; }, 50);
+
+function drawSpark(canvasId, data, color, maxVal, timestamps, outageFlags) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var w = canvas.parentElement.clientWidth;
+  var AXIS_H = 14, h = 64, graphH = h - AXIS_H;
+  canvas.width = w * 2; canvas.height = h * 2;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(2, 2);
+
+  if (!data || data.length < 2) {
+    ctx.fillStyle = 'rgba(148,163,184,0.15)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(148,163,184,0.5)';
+    ctx.font = '600 9px JetBrains Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data', w / 2, h / 2 + 3);
+    return;
+  }
+
+  var max = maxVal || Math.max.apply(null, data.filter(function(v) { return v !== null && v !== undefined; })) * 1.2 || 100;
+  var step = w / (data.length - 1);
+  var outage = outageFlags || [];
+
+  ctx.strokeStyle = 'rgba(148,163,184,0.06)'; ctx.lineWidth = 0.5;
+  for (var g = 1; g < 4; g++) { ctx.beginPath(); ctx.moveTo(0, graphH * g / 4); ctx.lineTo(w, graphH * g / 4); ctx.stroke(); }
+
+  var segments = [], outageZones = [], seg = [], inOutage = false, outageStart = -1;
+  for (var i = 0; i < data.length; i++) {
+    var isOutage = outage[i] === true;
+    var isNull = data[i] === null || data[i] === undefined;
+    if (isOutage || isNull) {
+      if (seg.length > 1) segments.push(seg);
+      seg = [];
+      if (isOutage && !inOutage) { outageStart = i; inOutage = true; }
+    } else {
+      if (inOutage) { outageZones.push({x1: outageStart * step, x2: (i - 1) * step}); inOutage = false; }
+      seg.push({x: i * step, y: graphH - (data[i] / max) * (graphH - 4), v: data[i]});
+    }
+  }
+  if (seg.length > 1) segments.push(seg);
+  if (inOutage) outageZones.push({x1: outageStart * step, x2: (data.length - 1) * step});
+
+  var grad = ctx.createLinearGradient(0, 0, 0, graphH);
+  grad.addColorStop(0, hexToRgba(color, 0.2));
+  grad.addColorStop(1, hexToRgba(color, 0.02));
+
+  segments.forEach(function(pts) {
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, graphH);
+    pts.forEach(function(p) { ctx.lineTo(p.x, p.y); });
+    ctx.lineTo(pts[pts.length - 1].x, graphH); ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    pts.forEach(function(p, i) { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    ctx.stroke();
+  });
+
+  var gapPulse = 0.4 + Math.sin(_graphPulsePhase * Math.PI / 30) * 0.2;
+  outageZones.forEach(function(zone) {
+    var midX = (zone.x1 + zone.x2) / 2;
+    var zoneW = zone.x2 - zone.x1; if (zoneW < 1) zoneW = 2;
+    ctx.fillStyle = 'rgba(232,106,106,' + (gapPulse * 0.08) + ')';
+    ctx.fillRect(zone.x1, 0, zoneW, graphH);
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(232,106,106,' + gapPulse + ')'; ctx.lineWidth = 0.75;
+    ctx.beginPath(); ctx.moveTo(zone.x1, 0); ctx.lineTo(zone.x1, graphH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(zone.x2, 0); ctx.lineTo(zone.x2, graphH); ctx.stroke();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(midX, graphH / 2, 2.5 + gapPulse * 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(232,106,106,' + gapPulse + ')'; ctx.fill();
+  });
+
+  if (segments.length > 0) {
+    var lastPt = segments[segments.length - 1];
+    var tip = lastPt[lastPt.length - 1];
+    var pulse = Math.sin(_graphPulsePhase * Math.PI / 30);
+    var outerR = 3 + pulse * 2.5;
+    ctx.beginPath(); ctx.arc(tip.x, tip.y, outerR, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(color, 0.15 + pulse * 0.15); ctx.fill();
+    ctx.beginPath(); ctx.arc(tip.x, tip.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = color; ctx.fill();
+  }
+
+  var lastVal = null;
+  for (var ii = data.length - 1; ii >= 0; ii--) { if (data[ii] !== null && data[ii] !== undefined) { lastVal = data[ii]; break; } }
+  if (lastVal !== null) {
+    ctx.fillStyle = color; ctx.font = '600 8px JetBrains Mono'; ctx.textAlign = 'right';
+    var valLabel = maxVal === 100 ? Math.round(lastVal) + '%' : Math.round(lastVal * 10) / 10;
+    ctx.fillText(String(valLabel), w - 3, 10);
+  }
+
+  if (timestamps && timestamps.length >= 2) {
+    ctx.font = '500 7px JetBrains Mono';
+    ctx.fillStyle = 'rgba(148,163,184,0.5)';
+    var timeFmt = function(ts) {
+      try {
+        var dd = new Date(ts);
+        return dd.toLocaleTimeString(window.VF_LOCALE || 'en-AU', {
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false, timeZone: window.VF_TZ || 'Australia/Sydney'
+        });
+      } catch(e) { return ''; }
+    };
+    ctx.textAlign = 'left';  ctx.fillText(timeFmt(timestamps[0]), 2, h - 1);
+    ctx.textAlign = 'right'; ctx.fillText(timeFmt(timestamps[timestamps.length - 1]), w - 2, h - 1);
+    if (w > 200) {
+      var midIdx = Math.floor(timestamps.length / 2);
+      ctx.textAlign = 'center'; ctx.fillText(timeFmt(timestamps[midIdx]), w / 2, h - 1);
+    }
+  }
+}
+
+function fetchHistory() {
+  fetch('/api/health/history?range=' + _hcRange + '&_t=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(d) { _hcHistory = d; renderGraphs(); renderQuickMetrics(); })
+    .catch(function() {});
+}
+
+function renderGraphs() {
+  if (!_hcHistory) return;
+  var ts = _hcHistory.timestamps || [];
+  var outage = _hcHistory.outage || [];
+  drawSpark('graphCpu', _hcHistory.cpu, '#8b7df7', 100, ts, outage);
+  drawSpark('graphMem', _hcHistory.memory, '#4fd18b', 100, ts, outage);
+  drawSpark('graphDisk', _hcHistory.disk, '#e8b84a', 100, ts, outage);
+
+  var netIn = _hcHistory.net_in || [], netOut = _hcHistory.net_out || [];
+  var netCombined = [], netMax = 0;
+  for (var i = 0; i < Math.max(netIn.length, netOut.length); i++) {
+    var inVal = netIn[i] !== null && netIn[i] !== undefined ? netIn[i] / (1024 * 1024) : null;
+    var outVal = netOut[i] !== null && netOut[i] !== undefined ? netOut[i] / (1024 * 1024) : null;
+    var combined = (inVal !== null && outVal !== null) ? inVal + outVal : (inVal || outVal);
+    netCombined.push(combined);
+    if (combined !== null && combined > netMax) netMax = combined;
+  }
+  drawSpark('graphNet', netCombined, '#38bdf8', netMax > 0 ? netMax * 1.2 : 100, ts, outage);
+
+  var reqData = _hcHistory.req_per_sec || [];
+  var reqMax = 0;
+  for (var j = 0; j < reqData.length; j++) {
+    if (reqData[j] !== null && reqData[j] !== undefined && reqData[j] > reqMax) reqMax = reqData[j];
+  }
+  drawSpark('graphReq', reqData, '#a89af9', reqMax > 0 ? Math.max(reqMax * 1.2, 10) : 50, ts, outage);
+}
+
+/* ── Graph hover tooltips ── */
+var _tooltip = null;
+function initGraphHover() {
+  if (!_tooltip) {
+    _tooltip = document.createElement('div');
+    _tooltip.style.cssText = 'position:fixed;z-index:100;pointer-events:none;display:none;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:var(--mono);font-size:0.625rem;color:var(--text);box-shadow:0 4px 12px rgba(0,0,0,0.3);white-space:nowrap;';
+    document.body.appendChild(_tooltip);
+  }
+  var configs = [
+    {id: 'graphCpu', key: 'cpu', unit: '%', label: 'CPU'},
+    {id: 'graphMem', key: 'memory', unit: '%', label: 'Memory'},
+    {id: 'graphDisk', key: 'disk', unit: '%', label: 'Disk'},
+    {id: 'graphNet', key: null, unit: ' MB', label: 'Net I/O', custom: true},
+    {id: 'graphReq', key: 'req_per_sec', unit: ' r/s', label: 'Req/s'},
+  ];
+  configs.forEach(function(cfg) {
+    var canvas = document.getElementById(cfg.id);
+    if (!canvas) return;
+    canvas.addEventListener('mousemove', function(e) {
+      if (!_hcHistory) return;
+      var data;
+      if (cfg.custom) {
+        var netIn = _hcHistory.net_in || [], netOut = _hcHistory.net_out || [];
+        data = [];
+        for (var k = 0; k < Math.max(netIn.length, netOut.length); k++) {
+          var iv = netIn[k] !== null && netIn[k] !== undefined ? netIn[k] / (1024 * 1024) : null;
+          var ov = netOut[k] !== null && netOut[k] !== undefined ? netOut[k] / (1024 * 1024) : null;
+          data.push(iv !== null && ov !== null ? iv + ov : (iv || ov));
+        }
+      } else {
+        data = _hcHistory[cfg.key] || [];
+      }
+      var timestamps = _hcHistory.timestamps || [];
+      if (data.length < 2) return;
+      var rect = canvas.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var pct = x / rect.width;
+      var idx = Math.min(Math.max(0, Math.round(pct * (data.length - 1))), data.length - 1);
+      var val = data[idx];
+      var ts = timestamps[idx];
+      var outageFlags = _hcHistory.outage || [];
+      var inGap = outageFlags[idx] === true;
+      if (inGap) {
+        _tooltip.innerHTML = '<span style="color:var(--red);font-weight:600;">&#9679; Offline</span><br><span style="color:var(--text-muted);font-size:0.5625rem;">No data collected in this period</span>';
+      } else if (val === null || val === undefined) {
+        _tooltip.innerHTML = '<span style="color:var(--text-muted);">No data</span>';
+      } else {
+        var timeStr = '?';
+        if (ts) {
+          try {
+            var d = new Date(ts);
+            timeStr = new Intl.DateTimeFormat(window.VF_LOCALE || 'en-AU', {
+              day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit',
+              timeZone: window.VF_TZ || 'Australia/Sydney'
+            }).format(d);
+          } catch(e) { timeStr = ts; }
+        }
+        _tooltip.innerHTML = '<strong>' + cfg.label + ':</strong> ' + (Math.round(val * 10) / 10) + cfg.unit + '<br><span style="color:var(--text-muted);">' + timeStr + '</span>';
+      }
+      _tooltip.style.display = '';
+      var tw = _tooltip.offsetWidth || 150;
+      var tx = e.clientX + 12, ty = e.clientY - 40;
+      if (tx + tw > window.innerWidth - 8) tx = e.clientX - tw - 12;
+      if (ty < 8) ty = e.clientY + 16;
+      _tooltip.style.left = tx + 'px'; _tooltip.style.top = ty + 'px';
+    });
+    canvas.addEventListener('mouseleave', function() { _tooltip.style.display = 'none'; });
+  });
+}
+
+/* ── Fleet row ── */
+function _esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function _relTime(iso) {
+  if (!iso) return 'never';
+  var t = new Date(iso).getTime();
+  var s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  var days = Math.floor(s/86400);
+  if (days <= 7) return days + 'd ago';
+  return days + ' days ago';
+}
+
+function loadFleetSessions() {
+  fetch('/admin/portal/api/health/sessions', {credentials:'same-origin'}).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+    if (!d) return;
+    var el = document.getElementById('hcpFleetSessions');
+    var cnt = document.getElementById('hcpFleetSessionsCount');
+    cnt.textContent = d.count + ' user' + (d.count === 1 ? '' : 's');
+    if (d.sessions.length === 0) {
+      el.innerHTML = '<div style="color:var(--color-text-muted);font-size:var(--text-xs);font-style:italic">No active sessions</div>';
+      return;
+    }
+    el.innerHTML = d.sessions.map(function(s) {
+      var saTag = s.has_sa ? '<span class="hcp-sa-tag">SA</span>' : '';
+      var tabs = s.tab_count > 1 ? '<span class="hcp-tab-badge">×' + s.tab_count + '</span>' : '';
+      var rel = _relTime(s.last_activity_at);
+      var stateLabel, stateColor;
+      if (s.last_activity_at) {
+        var ageS = (Date.now() - new Date(s.last_activity_at).getTime()) / 1000;
+        if (ageS < 120) { stateLabel = 'active ' + rel; stateColor = 'var(--color-done)'; }
+        else if (ageS < 1800) { stateLabel = 'idle ' + rel; stateColor = 'var(--color-needs-review)'; }
+        else { stateLabel = 'inactive ' + rel; stateColor = 'var(--color-text-muted)'; }
+      } else { stateLabel = 'no activity'; stateColor = 'var(--color-text-muted)'; }
+      var browser = s.browser || '';
+      return '<div class="hcp-srow">' +
+        '<div class="hcp-savatar">' + _esc(s.initials) + '</div>' +
+        '<div class="hcp-srow-info">' +
+        '<div class="hcp-srow-name">' + _esc(s.name) + ' ' + tabs + ' ' + saTag + '</div>' +
+        '<div class="hcp-srow-meta"><span style="color:' + stateColor + '">&#9679; ' + stateLabel + '</span> · ' + _esc(browser) + '</div>' +
+        '</div></div>';
+    }).join('');
+  }).catch(function() {});
+}
+
+var _showRevokedAgents = false;
+
+function loadFleetAgents() {
+  fetch('/admin/portal/api/health/agent-fleet', {credentials:'same-origin'}).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+    if (!d) return;
+    var el = document.getElementById('hcpFleetAgents');
+    var cnt = document.getElementById('hcpFleetAgentsCount');
+    var active = d.agents.filter(function(a) { return a.status === 'active'; });
+    var revoked = d.agents.filter(function(a) { return a.status === 'revoked'; });
+    var visible = _showRevokedAgents ? d.agents : active;
+    cnt.textContent = active.length + ' active' + (revoked.length ? ' · ' + revoked.length + ' revoked' : '');
+    if (visible.length === 0) {
+      el.innerHTML = '<div style="color:var(--color-text-muted);font-size:var(--text-xs);font-style:italic">No agents</div>';
+      return;
+    }
+    var rows = visible.map(function(a) {
+      var dot = 'hcp-status-dot';
+      if (a.status === 'revoked') dot += ' hcp-status-dot-bad';
+      else if (a.status !== 'active') dot += ' hcp-status-dot-warn';
+      var seen;
+      if (a.last_seen_at) seen = _relTime(a.last_seen_at);
+      else if (a.status === 'revoked') seen = 'revoked';
+      else seen = '<span style="font-style:italic;opacity:0.6">no activity yet</span>';
+      var proj = a.project_slug || '—';
+      var meta = proj + ' · ' + seen;
+      var nameStyle = a.status === 'revoked' ? 'opacity:0.4;text-decoration:line-through' : '';
+      return '<div class="hcp-srow">' +
+        '<div class="hcp-aicon">&#129302;</div>' +
+        '<div class="hcp-srow-info">' +
+        '<div class="hcp-arow-name" style="' + nameStyle + '">' + _esc(a.name) + ' <span class="' + dot + '"></span></div>' +
+        '<div class="hcp-srow-meta">' + meta + '</div>' +
+        '</div>' + _tokenAgeBadge(a.token_age_days) + '</div>';
+    }).join('');
+    var toggle = '';
+    if (revoked.length > 0) {
+      toggle = '<div style="text-align:center;padding-top:0.4rem;border-top:1px solid var(--color-border);margin-top:0.4rem">' +
+        '<button onclick="_showRevokedAgents=!_showRevokedAgents;loadFleetAgents()" style="font-family:var(--font-mono);font-size:0.55rem;color:var(--color-text-muted);background:none;border:none;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em">' +
+        (_showRevokedAgents ? 'Hide revoked' : 'Show ' + revoked.length + ' revoked') +
+        '</button></div>';
+    }
+    el.innerHTML = rows + toggle;
+  }).catch(function() {});
+}
+
+function _tokenAgeBadge(days) {
+  if (days == null) return '';
+  var label = days === 0 ? 'today' : days + 'd';
+  var cls = 'hcp-token-badge';
+  if (days > 90) cls = 'hcp-token-badge hcp-token-badge-bad';
+  else if (days > 30) cls = 'hcp-token-badge hcp-token-badge-warn';
+  return '<span class="' + cls + '">' + label + '</span>';
+}
+
+function loadAuthStats() {
+  fetch('/admin/portal/api/health/auth-stats', {credentials:'same-origin'}).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+    if (!d) return;
+    var failColor = d.signins_failed > 0 ? 'color:var(--color-needs-review)' : '';
+    document.getElementById('hcpAuthStats').innerHTML =
+      '<div class="hcp-statline"><span>Sign-ins (success)</span><span>' + d.signins_success + '</span></div>' +
+      '<div class="hcp-statline"><span>Failed logins</span><span style="' + failColor + '">' + d.signins_failed + '</span></div>' +
+      '<div class="hcp-statline"><span>SA elevations</span><span>' + d.sa_elevations + '</span></div>' +
+      '<div class="hcp-statline"><span>SA failed</span><span>' + d.sa_failed + '</span></div>' +
+      '<div class="hcp-statline"><span>Token cycles</span><span>' + d.token_cycles + '</span></div>' +
+      '<div class="hcp-statline"><span>Audit events</span><span>' + d.audit_events_24h + '</span></div>';
+  }).catch(function() {});
+}
+
+function loadDbStats() {
+  fetch('/admin/portal/api/health/db-stats', {credentials:'same-origin'}).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+    if (!d) return;
+    document.getElementById('hcpDbStats').innerHTML =
+      '<div class="hcp-statline"><span>activity_events</span><span>' + d.activity_events.toLocaleString() + '</span></div>' +
+      '<div class="hcp-statline"><span>tasks</span><span>' + d.tasks.toLocaleString() + '</span></div>' +
+      '<div class="hcp-statline"><span>task_notes</span><span>' + d.task_notes.toLocaleString() + '</span></div>' +
+      '<div class="hcp-statline"><span>users</span><span>' + d.users + '</span></div>' +
+      '<div class="hcp-statline"><span>agents</span><span>' + d.agents + '</span></div>' +
+      '<div class="hcp-statline"><span>projects</span><span>' + d.projects + '</span></div>';
+  }).catch(function() {});
+}
+
+function loadFleetRow() {
+  loadFleetSessions();
+  loadFleetAgents();
+  loadAuthStats();
+  loadDbStats();
+}
+
+/* ── Init ── */
+_loadEvents();
+setInterval(_loadEvents, 10000);
+loadFleetRow();
+setInterval(loadFleetRow, 10000);
+pollHealth();
+fetchHistory();
+_hcPollInterval = setInterval(pollHealth, 1000);
+_hcHistoryInterval = setInterval(fetchHistory, 1000);
+setTimeout(initGraphHover, 2000);
+window.addEventListener('resize', renderGraphs);
+
+function syncActivityHeight() {
+  var gs = document.querySelector('.hcp-graph-stack');
+  var ap = document.querySelector('.hcp-activity-panel');
+  if (gs && ap) ap.style.height = gs.offsetHeight + 'px';
+}
+syncActivityHeight();
+window.addEventListener('resize', syncActivityHeight);
+setInterval(syncActivityHeight, 2000);
+
+setInterval(function() { if (_hcHistory) renderGraphs(); }, 250);
+{% endblock %}

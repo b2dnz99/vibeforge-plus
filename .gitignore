@@ -1,0 +1,21 @@
+.env
+.agent-config
+agent-token
+agent-token.txt
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Test fixture agent token
+scripts/.test-agent-token
+
+# Project-scoped scratch (helper scripts, API dumps, session captures, backups)
+# Replaces ad-hoc use of /c/tmp/ for project-related ephemera.
+.scratch/

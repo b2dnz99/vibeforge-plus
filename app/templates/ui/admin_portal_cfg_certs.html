@@ -1,0 +1,92 @@
+{% extends "ui/admin_base.html" %}
+{% block title %}Admin · Certificates — VibeForge+{% endblock %}
+{% block content %}
+<div class="ap-crumb"><span>Admin</span> &rsaquo; Configuration &rsaquo; Certificates</div>
+<h1 class="ap-ws-title">Certificates</h1>
+<div class="ap-ws-subtitle">The live TLS cert Caddy is serving. Change the source, rotate the hostname, or export the current cert — dangerous actions are <b style="color:var(--red-2)">red</b>.</div>
+
+<div class="ap-panel violet-edge">
+  <div class="ap-panel-title">
+    <span>// LIVE CERT</span>
+    {# VF-326 graduate 2026-04-28: at-a-glance health badge (mode + days remaining)
+       fills the previously-empty top-right of the panel header. #}
+    {% set _d = current_cert.days_remaining %}
+    {% if _d is none %}
+      <span class="ap-status-badge"><span class="ap-status-dot"></span>SERVING &middot; {{ current_cert.mode | default('—') }}</span>
+    {% elif _d < 0 %}
+      <span class="ap-status-badge red"><span class="ap-status-dot"></span>EXPIRED &middot; {{ _d }} days</span>
+    {% elif _d <= 7 %}
+      <span class="ap-status-badge amber"><span class="ap-status-dot"></span>EXPIRING &middot; {{ _d }} days</span>
+    {% else %}
+      <span class="ap-status-badge"><span class="ap-status-dot"></span>HEALTHY &middot; {{ _d }} days</span>
+    {% endif %}
+  </div>
+  <div class="ap-drow"><div class="ap-drow-k">Mode</div><div class="ap-drow-v"><span class="ap-dot green"></span>{{ current_cert.mode | default('—') }}</div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Issuer</div><div class="ap-drow-v">{{ current_cert.issuer | default('—') }}</div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Subject</div><div class="ap-drow-v">{{ current_cert.subject | default(current_cert.cn | default('—')) }}</div></div>
+  <div class="ap-drow"><div class="ap-drow-k">Expiry</div>
+    <div class="ap-drow-v">
+      {% set d = current_cert.days_remaining %}
+      {% if d is none %}
+        <span class="ap-dot green"></span>{{ current_cert.note | default('managed by Caddy') }}
+      {% else %}
+        <span class="ap-dot {% if d < 0 %}red{% elif d <= 7 %}amber{% else %}green{% endif %}"></span>
+        {{ current_cert.not_after | default('—') }} ({{ d }} days)
+      {% endif %}
+    </div>
+  </div>
+  <div class="ap-drow"><div class="ap-drow-k">SAN</div><div class="ap-drow-v">{{ current_cert.san | default([]) | join(', ') or '(none)' }}</div></div>
+</div>
+
+<div class="ap-panel">
+  <div class="ap-panel-title">// READ ACTIONS</div>
+  {# VF-326 tidy 2026-04-28: removed "Export current fullchain" (low value across modes;
+     operator already has source for file/PFX, CA bundle is the useful artifact for caddy_internal).
+     Removed "Copy live Caddy config" (debug surface — relocates to proxy admin workspace per VF-335;
+     backend GET /api/v2/proxy/config remains untouched). #}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <button class="ap-btn" onclick="apReload()">&#x21BB; Reload Caddy</button>
+    <span id="apActionStatus" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-muted);"></span>
+  </div>
+</div>
+
+<div class="ap-panel danger-edge">
+  <div class="ap-panel-title">// DANGER · write actions</div>
+  <div class="ap-callout">
+    <b>These actions mutate the cert Caddy serves.</b> Rollback-on-fail is enabled (backup kept, TLS probe checks handshake, reverts on failure). HTTPS clients see a ~2 second interruption during reload.
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+    {# VF-328: tier-S — gated by the popup when no SA cookie. #}
+    <a class="ap-btn danger" data-tier="S" data-action-name="Open the cert change wizard" href="/admin/portal/configuration/certificates/change-cert">&#x1F527; Change cert configuration</a>
+    {# VF-326 graduate 2026-04-28: Force renew only applies to caddy_internal / acme;
+       both modes are deferred POST RC/1.0 under VF-337. Disable the button + show
+       padlock + pill to make the deferral visible (matches Stage 2 mode-card pattern). #}
+    <button class="ap-btn ghost-danger" disabled title="Force renew applies only to caddy_internal / acme — both deferred POST RC/1.0 (VF-336/VF-337).">&#x1F512; Force renew <span class="ap-rc-pill">post RC/1.0</span></button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+async function apReload() {
+  const status = document.getElementById('apActionStatus');
+  status.textContent = 'reloading...';
+  try {
+    const r = await fetch('/api/v2/proxy/reload', { method: 'POST' });
+    const d = await r.json();
+    status.textContent = r.ok ? ('reloaded ' + (d.reloaded_at || '')) : ('failed: ' + JSON.stringify(d.detail || d));
+    status.style.color = r.ok ? 'var(--green)' : 'var(--red-2)';
+  } catch (e) { status.textContent = 'error: ' + e; status.style.color = 'var(--red-2)'; }
+}
+async function apRenew() {
+  const status = document.getElementById('apActionStatus');
+  status.textContent = 'renewing...';
+  try {
+    const r = await fetch('/api/v2/proxy/cert/renew', { method: 'POST' });
+    const d = await r.json();
+    status.textContent = r.ok ? 'renew triggered' : ('failed: ' + JSON.stringify(d.detail || d));
+    status.style.color = r.ok ? 'var(--green)' : 'var(--amber)';
+  } catch (e) { status.textContent = 'error: ' + e; status.style.color = 'var(--red-2)'; }
+}
+/* VF-326 tidy 2026-04-28: apCopyConfig() removed; UI affordance relocates to proxy admin
+   workspace per VF-335. Backend endpoint /api/v2/proxy/config remains untouched. */
+{% endblock %}
