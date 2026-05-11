@@ -1,7 +1,7 @@
 ---
 title: VibeForge+ SU Elevation Tier — Phase 2 of the SA/SU identity split
 audience: public
-status: 0.7.0-PRE-RC
+status: 0.7.1-PRE-RC
 version: 1.1.0
 supersedes: 0-MD/proposed/SU-ELEVATION-TIER-PROPOSAL.md (graduated on PROD ship)
 last_updated: 2026-05-09

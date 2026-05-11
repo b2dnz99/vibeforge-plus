@@ -1,4 +1,4 @@
-# VibeForge+ docs (0.7.0-PRE-RC bundle)
+# VibeForge+ docs (0.7.1-PRE-RC bundle)
 
 Customer-facing documentation that ships with this release. Read in two passes:
 

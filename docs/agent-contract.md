@@ -1,7 +1,7 @@
 ---
 title: VibeForge+ Agent Contract Architecture
 audience: public
-status: 0.7.0-PRE-RC
+status: 0.7.1-PRE-RC
 version: 1.1.0
 contract_version_at_writing: 2.14.3
 last_updated: 2026-05-09

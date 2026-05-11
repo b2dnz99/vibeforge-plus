@@ -1,4 +1,4 @@
-# VibeForge+ — install (0.7.0-PRE-RC)
+# VibeForge+ — install (0.7.1-PRE-RC)
 
 **Personal project, GPLv3, fully vibecoded.** Built by the author for their own AI-paired-programming workflow and released as a curiosity that may be useful to others. A formal threat-model review has not been completed. Suitable for self-hosted small-team or single-operator use behind your own network controls. Not for public-internet exposure without further hardening.
 
@@ -16,25 +16,28 @@ Total install time: roughly 2-5 minutes on a fresh VM.
 
 ## Prerequisites
 
-- **Ubuntu 24.04 LTS** (script will warn but allow other distros)
+- **Operating system: Ubuntu 24.04 LTS on x86_64.** Script will warn but allow other distros. **macOS users — see [`INSTALL-MAC.md`](INSTALL-MAC.md)** for the working OrbStack-VM recipe. **arm64 hosts** (Apple Silicon, Raspberry Pi, AWS Graviton) currently need a one-line `health/Dockerfile` patch — see INSTALL-MAC.md §3 for the fix.
 - **Root access** (the script must run as `sudo bash …`)
 - **Internet reachable** (the script pulls Docker via the official apt repo + clones / extracts the source)
 - A **hostname or LAN address** you've decided this install will live at — e.g. `vibeforge.your-domain.com`, `vibeforge.lan`, or `localhost` for single-machine
 - About **5 GB free disk**
+- **Two distinct email addresses** ready — one for the Super-Admin account, one for the first board user. The backend enforces unique emails; reusing the same address half-installs (SA created, operator fails).
 
 ## Run
 
 If you have a tarball + the script (recommended for offline / private-source installs):
 
 ```bash
-sudo VIBEFORGE_SOURCE_TARBALL=/path/to/vibeforge-0.7.0-RC.tar bash vibeforge-install.sh
+sudo VIBEFORGE_SOURCE_TARBALL=/path/to/vibeforge-0.7.1-RC.tar bash vibeforge-install.sh
 ```
 
-If you can clone from GitHub directly:
+If you can clone from GitHub directly (public repo):
 
 ```bash
-sudo bash vibeforge-install.sh
+sudo VIBEFORGE_BRANCH=main bash vibeforge-install.sh
 ```
+
+The public repo carries `main` + the tag `v0.7.0-pre-rc`. The script's internal default points at a branch that only exists on the private development repo, so override with `VIBEFORGE_BRANCH=main` for the public path. (If you're cloning the private dev repo, omit the override.)
 
 ## What the script does
 
@@ -97,5 +100,8 @@ The script exits non-zero on any pre-flight failure or hard error, with a `✗` 
 - Source directory `/opt/vibeforge` already exists (script refuses; move it aside first: `sudo mv /opt/vibeforge /opt/vibeforge.bak.$(date +%s)`)
 - App container failed to come healthy in 90 s — check `docker compose logs app`
 - First-user creation 422'd — create the user manually from the admin portal at `/admin/portal/administration/users` after install completes
+- **`fatal: Remote branch ... not found`** during clone — re-run with `VIBEFORGE_BRANCH=main` (or whatever branch your repo carries)
+- **`health 4/5 RUN pip install ... error: command 'gcc' failed`** on arm64 — patch `health/Dockerfile` per INSTALL-MAC.md §3, then re-run
+- **Operator user missing after install** (summary printed but no operator account) — likely a duplicate-email 409; either re-run the bootstrap step with a distinct email, or create the operator manually via `/admin/portal/administration/users`
 
 The `Build identifier:` line in the summary is the single value to quote when reporting issues.

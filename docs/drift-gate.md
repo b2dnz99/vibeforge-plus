@@ -1,7 +1,7 @@
 ---
 title: "The drift gate — what it does, why it exists, how to control it"
 audience: public
-status: 0.7.0-PRE-RC
+status: 0.7.1-PRE-RC
 version: 1.1.0
 last_updated: 2026-05-09
 authors: Parvez Khan + Claude (AI co-author)

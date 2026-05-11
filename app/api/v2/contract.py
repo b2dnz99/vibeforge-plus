@@ -738,11 +738,11 @@ CONTRACT_VERSION = "2.14.5"  # VF-385: StepAck.surfaced_verbatim docstring end-m
 # admin portal. Two cases:
 #   - master / dev branches: empty string here -> startup hook falls back to
 #     "Pre-RC · alembic <head>" (dynamic; useful for "what build am I on?").
-#   - downstream release branches (e.g. 0.7.0-RC for Kelly): set to a static
-#     human-readable string like "0.7.0-RC (Pre-release)".
+#   - downstream release branches (e.g. 0.7.1-RC): set to a static
+#     human-readable string like "0.7.1-RC (Pre-release)".
 # Intent: a colleague/customer running a downstream branch sees a stable
 # label they can quote back; an internal dev sees the live alembic head.
-BUILD_TAG = "0.7.0-PRE-RC"
+BUILD_TAG = "0.7.1-PRE-RC"
 
 
 def _get_agent_from_token(request: Request, db: Session) -> Optional[Agent]:

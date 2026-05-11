@@ -9,7 +9,7 @@
 # What it does:
 #   1. Pre-flight (root + Ubuntu 24 + internet)
 #   2. Installs Docker Engine via the official apt repo (idempotent)
-#   3. Clones the 0.7.0-RC branch into /opt/vibeforge
+#   3. Clones the 0.7.1-RC branch into /opt/vibeforge
 #   4. Surfaces the THREAT-MODEL warning + asks acknowledgement
 #   5. Prompts for hostname, intended public URL, SA creds, first-user creds
 #   6. Generates .env (random POSTGRES_PASSWORD + SECRET_KEY)
@@ -23,10 +23,10 @@
 # Idempotent on re-run for steps 1-3 (Docker install + clone are skipped if
 # already present). Steps 4+ assume a fresh /opt/vibeforge tree; running
 # against an existing install is NOT supported (use the migration path
-# documented in 0.7.0-RC-BASELINE.md instead).
+# documented in 0.7.1-RC-BASELINE.md instead).
 #
-# Branch pinned: 0.7.0-RC (the Kelly-handover baseline). To install master
-# instead, set VIBEFORGE_BRANCH=master before running.
+# Branch pinned: 0.7.1-RC. To install master instead, set
+# VIBEFORGE_BRANCH=master before running.
 #
 # Source choice (in priority order):
 #   1. VIBEFORGE_SOURCE_TARBALL=/path/to/file.tar  (offline / private-repo)
@@ -49,7 +49,7 @@ die()  { printf "%b\n" "${RED}✗ $1${RESET}" >&2; exit 1; }
 hr()   { printf "%b\n" "${DIM}────────────────────────────────────────────────────────────────────${RESET}"; }
 
 # ── Defaults (overridable via env) ───────────────────────────────────────────
-VIBEFORGE_BRANCH="${VIBEFORGE_BRANCH:-0.7.0-RC}"
+VIBEFORGE_BRANCH="${VIBEFORGE_BRANCH:-0.7.1-RC}"
 VIBEFORGE_REPO="${VIBEFORGE_REPO:-https://github.com/b2dnz99/vibeforge-plus.git}"
 VIBEFORGE_DIR="${VIBEFORGE_DIR:-/opt/vibeforge}"
 

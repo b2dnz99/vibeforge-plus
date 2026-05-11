@@ -1,7 +1,7 @@
 ---
 title: "What VibeForge+ is"
 audience: public
-status: 0.7.0-PRE-RC
+status: 0.7.1-PRE-RC
 version: 1.1.0
 last_updated: 2026-05-09
 authors: Parvez Khan + Claude (AI co-author)
@@ -15,11 +15,11 @@ Runs on your own host. Has no telemetry. Stores no credentials for third-party s
 
 ## Honest framing
 
-This is a **personal project**. The author built it for their own AI-paired-programming workflow and chose to release it under GPLv3 in case it's useful to anyone else. It is **fully vibecoded** — written with AI agents from start to finish — and is at **0.7.0-PRE-RC**, meaning the mechanics work end-to-end on a fresh Ubuntu 24 install but a formal threat-model review has not been done.
+This is a **personal project**. The author built it for their own AI-paired-programming workflow and chose to release it under GPLv3 in case it's useful to anyone else. It is **fully vibecoded** — written with AI agents from start to finish — and is at **0.7.1-PRE-RC**, meaning the mechanics work end-to-end on a fresh Ubuntu 24 install but a formal threat-model review has not been done.
 
 If you're looking for production-grade enterprise software with an SLA, this isn't that. If you're looking for a small, opinionated task board built around the assumption that you and your AI agent are working as a pair, it might suit you.
 
-The orange `0.7.0-PRE-RC` label under the top-left logo on every page is the visual reminder.
+The orange `0.7.1-PRE-RC` label under the top-left logo on every page is the visual reminder.
 
 ## What it does
 

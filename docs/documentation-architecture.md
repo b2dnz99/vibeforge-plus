@@ -18,7 +18,7 @@ ip_summary: |
  guides tier (loses user-facing onboarding). Doing all three together
  produces a documentation system that is self-aware about its own audience,
  IP value, and writing voice.
-status: 0.7.0-PRE-RC
+status: 0.7.1-PRE-RC
 version: 1.1.0
 last_updated: 2026-05-09
 authors: Parvez Khan + Claude (AI co-author)
